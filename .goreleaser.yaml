@@ -1,0 +1,142 @@
+# GoReleaser configuration for jj-stacked
+# Documentation: https://goreleaser.com
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: jj-stacked
+    main: ./cmd/jj-stacked
+    binary: jj-stacked
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+    # Ignore arm64 for Windows (not commonly used)
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+  - id: jjs
+    main: ./cmd/jj-stacked
+    binary: jjs
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: default
+    builds:
+      - jj-stacked
+      - jjs
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    # Use zip for Windows
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE*
+      - docs/*
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^chore:'
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: '^feat'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^fix'
+      order: 1
+    - title: Performance
+      regexp: '^perf'
+      order: 2
+    - title: Other
+      order: 999
+
+release:
+  github:
+    owner: OSMorph
+    name: jj-stacked
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## jj-stacked {{ .Version }}
+
+    Stacked pull requests for Jujutsu users.
+  footer: |
+    ---
+
+    **Full Changelog**: https://github.com/OSMorph/jj-stacked/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+    ### Installation
+
+    Each release includes both `jj-stacked` and the shorter `jjs` alias.
+
+    ```bash
+    # Download and extract the archive for your platform
+    # Both jj-stacked and jjs binaries are included
+
+    # Or using Go (installs jj-stacked only)
+    go install github.com/OSMorph/jj-stacked/cmd/jj-stacked@{{ .Tag }}
+    ```
+
+# Homebrew formula (optional - requires a separate tap repository)
+# Uncomment and configure if you have a homebrew-tap repository
+# brews:
+#   - repository:
+#       owner: lsanpablo
+#       name: homebrew-tap
+#     homepage: https://github.com/OSMorph/jj-stacked
+#     description: Stacked pull requests for Jujutsu users
+#     license: MIT
+#     folder: Formula
+#     test: |
+#       system "#{bin}/jj-stacked", "--version"
+#     install: |
+#       bin.install "jj-stacked"
