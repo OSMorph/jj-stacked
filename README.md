@@ -7,10 +7,9 @@ Stacked pull requests for Jujutsu users.
 ## Quick Start
 
 ```bash
-# Install (includes both jj-stacked and jjs commands)
-git clone https://github.com/OSMorph/jj-stacked.git
-cd jj-stacked
-make install
+# Download latest release (macOS Apple Silicon example)
+curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_darwin_arm64.tar.gz | tar xz
+sudo mv jj-stacked jjs /usr/local/bin/
 
 # Authenticate (if you have GitHub CLI)
 gh auth login
@@ -21,6 +20,8 @@ jjs
 # Submit a stack of PRs
 jjs submit my-feature
 ```
+
+See [Releases](https://github.com/OSMorph/jj-stacked/releases) for all platforms (macOS, Linux, Windows).
 
 > **Note:** `jjs` is a short alias for `jj-stacked`. All examples in this README work with either command.
 
@@ -42,7 +43,36 @@ jjs submit my-feature
 
 ## Installation
 
-### From Source (Recommended)
+### From Releases (Recommended)
+
+Download the latest binary for your platform from [Releases](https://github.com/OSMorph/jj-stacked/releases).
+
+```bash
+# macOS Apple Silicon
+curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_darwin_arm64.tar.gz | tar xz
+
+# macOS Intel
+curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_darwin_amd64.tar.gz | tar xz
+
+# Linux x86_64
+curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_linux_amd64.tar.gz | tar xz
+
+# Linux ARM64
+curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_linux_arm64.tar.gz | tar xz
+
+# Then move to your PATH
+sudo mv jj-stacked jjs /usr/local/bin/
+```
+
+### Using go install
+
+```bash
+go install github.com/OSMorph/jj-stacked/cmd/jj-stacked@latest
+```
+
+Note: This only installs `jj-stacked`. For the `jjs` alias, use another installation method.
+
+### Build Locally
 
 ```bash
 git clone https://github.com/OSMorph/jj-stacked.git
@@ -51,24 +81,6 @@ make install
 ```
 
 This installs both `jj-stacked` and the shorter `jjs` alias to your `$GOPATH/bin`.
-
-### Using go install
-
-```bash
-go install github.com/OSMorph/jj-stacked/cmd/jj-stacked@latest
-```
-
-Note: This only installs `jj-stacked`. For the `jjs` alias, use the source installation method above.
-
-### Build Without Installing
-
-```bash
-git clone https://github.com/OSMorph/jj-stacked.git
-cd jj-stacked
-make build-all
-./jj-stacked --version
-./jjs --version
-```
 
 ## Authentication
 
