@@ -2,7 +2,6 @@ package jjutils
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -10,47 +9,55 @@ import (
 	apperrors "github.com/OSMorph/jj-stacked/internal/errors"
 )
 
-// AIDEV-NOTE: These templates produce JSON output from jj commands.
-// The templates use jj's template language with .escape_json() for proper escaping.
-// For jj 0.27+, templates should use string concatenation rather than {interpolation} at top level.
+// AIDEV-NOTE: These templates produce delimited output from jj commands.
+// We use ASCII delimiters (0x1E record separator, 0x1F unit separator) to avoid
+// issues with special characters in commit messages, author names, etc.
+// JSON is constructed in Go where we have proper escaping control.
+
+// Delimiters for parsing jj output - these are control characters unlikely to appear in content
+const (
+	recordSeparator = "\x1e" // ASCII Record Separator
+	fieldSeparator  = "\x1f" // ASCII Unit Separator
+)
 
 // logEntryTemplate is the jj template for getting change information.
-// Produces one JSON object per line.
-// Note: jj 0.27+ types (Email, RefName, etc.) don't have escape_json, so we stringify directly.
-// This may cause issues with special characters in names/emails - we handle escaping in Go.
-const logEntryTemplate = `concat(
-  '{"commit_id":"', commit_id.short(), '",',
-  '"change_id":"', change_id.short(), '",',
-  '"author_name":"', author.name(), '",',
-  '"author_email":"', author.email(), '",',
-  '"description_first_line":"', description.first_line(), '",',
-  '"description":"', description, '",',
-  '"parents":[', parents.map(|p| '"' ++ p.commit_id().short() ++ '"').join(","), '],',
-  '"local_bookmarks":[', local_bookmarks.map(|b| '"' ++ b ++ '"').join(","), '],',
-  '"remote_bookmarks":[', remote_bookmarks.map(|b| '"' ++ b ++ '"').join(","), '],',
-  '"is_working_copy":', if(current_working_copy, "true", "false"), ',',
-  '"is_empty":', if(empty, "true", "false"), ',',
-  '"conflict":', if(conflict, "true", "false"),
-  '}
-'
-)`
+// Produces delimited output: fields separated by 0x1F, records by 0x1E.
+// Field order: commit_id, change_id, author_name, author_email, description_first_line,
+//              description, parents, local_bookmarks, remote_bookmarks, is_working_copy, is_empty, conflict
+// Note: jj only interprets escape sequences in double quotes, so we use \"\\x1f\" for delimiters.
+const logEntryTemplate = "concat(" +
+	"commit_id.short(), \"\\x1f\"," +
+	"change_id.short(), \"\\x1f\"," +
+	"author.name(), \"\\x1f\"," +
+	"author.email(), \"\\x1f\"," +
+	"description.first_line(), \"\\x1f\"," +
+	"description, \"\\x1f\"," +
+	"parents.map(|p| p.commit_id().short()).join(\",\"), \"\\x1f\"," +
+	"local_bookmarks.join(\",\"), \"\\x1f\"," +
+	"remote_bookmarks.join(\",\"), \"\\x1f\"," +
+	"if(current_working_copy, \"true\", \"false\"), \"\\x1f\"," +
+	"if(empty, \"true\", \"false\"), \"\\x1f\"," +
+	"if(conflict, \"true\", \"false\")," +
+	"\"\\x1e\"" +
+	")"
 
 // bookmarkTemplate is the jj template for getting bookmark information.
 // For jj 0.27+, bookmark list uses self.normal_target() to get commit info.
-// Note: synced() doesn't exist in jj 0.27+, so we set is_synced based on whether remote exists.
-const bookmarkTemplate = `if(
-  self.normal_target(),
-  concat(
-    '{"name":"', name, '",',
-    '"commit_id":"', self.normal_target().commit_id().short(), '",',
-    '"change_id":"', self.normal_target().change_id().short(), '",',
-    '"has_remote":', if(self.remote(), "true", "false"), ',',
-    '"is_synced":', if(self.remote(), "true", "false"),
-    '}
-'
-  ),
-  ""
-)`
+// Produces delimited output: fields separated by 0x1F, records by 0x1E.
+// Field order: name, commit_id, change_id, has_remote, is_synced
+// Note: jj only interprets escape sequences in double quotes, so we use \"\\x1f\" for delimiters.
+const bookmarkTemplate = "if(" +
+	"self.normal_target()," +
+	"concat(" +
+	"name, \"\\x1f\"," +
+	"self.normal_target().commit_id().short(), \"\\x1f\"," +
+	"self.normal_target().change_id().short(), \"\\x1f\"," +
+	"if(self.remote(), \"true\", \"false\"), \"\\x1f\"," +
+	"if(self.remote(), \"true\", \"false\")," +
+	"\"\\x1e\"" +
+	")," +
+	"\"\"" +
+	")"
 
 // GetRepoRoot returns the repository root directory.
 func (j *jjFunctions) GetRepoRoot(ctx context.Context) (string, error) {
@@ -187,7 +194,8 @@ func (j *jjFunctions) GetChangesInRange(ctx context.Context, from, to string) ([
 	return j.GetLog(ctx, revset, 0)
 }
 
-// parseLogEntries parses the JSON output from jj log.
+// parseLogEntries parses the delimited output from jj log.
+// Format: fields separated by 0x1F, records separated by 0x1E.
 func parseLogEntries(output string) ([]LogEntry, error) {
 	output = strings.TrimSpace(output)
 	if output == "" {
@@ -195,43 +203,55 @@ func parseLogEntries(output string) ([]LogEntry, error) {
 	}
 
 	var entries []LogEntry
-	lines := strings.Split(output, "\n")
+	records := strings.Split(output, recordSeparator)
 
-	// Accumulate JSON across lines (each entry ends with "}")
-	var jsonBuf strings.Builder
-	braceCount := 0
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
+	for _, record := range records {
+		record = strings.TrimSpace(record)
+		if record == "" {
 			continue
 		}
 
-		jsonBuf.WriteString(line)
-
-		// Count braces to find complete JSON objects
-		for _, ch := range line {
-			if ch == '{' {
-				braceCount++
-			} else if ch == '}' {
-				braceCount--
-			}
+		fields := strings.Split(record, fieldSeparator)
+		if len(fields) < 12 {
+			return nil, fmt.Errorf("failed to parse log entry: expected 12 fields, got %d", len(fields))
 		}
 
-		if braceCount == 0 && jsonBuf.Len() > 0 {
-			var entry LogEntry
-			if err := json.Unmarshal([]byte(jsonBuf.String()), &entry); err != nil {
-				return nil, fmt.Errorf("failed to parse log entry: %w\njson: %s", err, jsonBuf.String())
-			}
-			entries = append(entries, entry)
-			jsonBuf.Reset()
+		// Parse comma-separated lists (parents, local_bookmarks, remote_bookmarks)
+		var parents []string
+		if fields[6] != "" {
+			parents = strings.Split(fields[6], ",")
 		}
+		var localBookmarks []string
+		if fields[7] != "" {
+			localBookmarks = strings.Split(fields[7], ",")
+		}
+		var remoteBookmarks []string
+		if fields[8] != "" {
+			remoteBookmarks = strings.Split(fields[8], ",")
+		}
+
+		entry := LogEntry{
+			CommitID:             fields[0],
+			ChangeID:             fields[1],
+			AuthorName:           fields[2],
+			AuthorEmail:          fields[3],
+			DescriptionFirstLine: fields[4],
+			Description:          fields[5],
+			Parents:              parents,
+			LocalBookmarks:       localBookmarks,
+			RemoteBookmarks:      remoteBookmarks,
+			IsWorkingCopy:        fields[9] == "true",
+			IsEmpty:              fields[10] == "true",
+			Conflict:             fields[11] == "true",
+		}
+		entries = append(entries, entry)
 	}
 
 	return entries, nil
 }
 
-// parseBookmarks parses the JSON output from jj bookmark list.
+// parseBookmarks parses the delimited output from jj bookmark list.
+// Format: fields separated by 0x1F, records separated by 0x1E.
 func parseBookmarks(output string) ([]Bookmark, error) {
 	output = strings.TrimSpace(output)
 	if output == "" {
@@ -239,33 +259,27 @@ func parseBookmarks(output string) ([]Bookmark, error) {
 	}
 
 	var bookmarks []Bookmark
-	var jsonBuf strings.Builder
-	braceCount := 0
+	records := strings.Split(output, recordSeparator)
 
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
+	for _, record := range records {
+		record = strings.TrimSpace(record)
+		if record == "" {
 			continue
 		}
 
-		jsonBuf.WriteString(line)
-
-		for _, ch := range line {
-			if ch == '{' {
-				braceCount++
-			} else if ch == '}' {
-				braceCount--
-			}
+		fields := strings.Split(record, fieldSeparator)
+		if len(fields) < 5 {
+			return nil, fmt.Errorf("failed to parse bookmark: expected 5 fields, got %d", len(fields))
 		}
 
-		if braceCount == 0 && jsonBuf.Len() > 0 {
-			var bookmark Bookmark
-			if err := json.Unmarshal([]byte(jsonBuf.String()), &bookmark); err != nil {
-				return nil, fmt.Errorf("failed to parse bookmark: %w\njson: %s", err, jsonBuf.String())
-			}
-			bookmarks = append(bookmarks, bookmark)
-			jsonBuf.Reset()
+		bookmark := Bookmark{
+			Name:      fields[0],
+			CommitID:  fields[1],
+			ChangeID:  fields[2],
+			HasRemote: fields[3] == "true",
+			IsSynced:  fields[4] == "true",
 		}
+		bookmarks = append(bookmarks, bookmark)
 	}
 
 	return bookmarks, nil
