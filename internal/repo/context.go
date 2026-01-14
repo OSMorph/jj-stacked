@@ -193,12 +193,19 @@ func getRemoteURL(ctx context.Context, exec cmdexec.CommandExecutor, remote stri
 // Supports:
 //   - https://github.com/owner/repo.git
 //   - git@github.com:owner/repo.git
+//   - ssh://git@github.com/owner/repo.git
 //   - https://git.mycompany.com/owner/repo.git
 //   - git@git.mycompany.com:owner/repo.git
 func parseRemoteURL(url string) (owner, repo, host string, err error) {
 	// SSH format: git@host:owner/repo.git
 	sshPattern := regexp.MustCompile(`^git@([^:]+):([^/]+)/(.+?)(?:\.git)?$`)
 	if matches := sshPattern.FindStringSubmatch(url); matches != nil {
+		return matches[2], matches[3], matches[1], nil
+	}
+
+	// SSH URL format: ssh://git@host/owner/repo.git
+	sshURLPattern := regexp.MustCompile(`^ssh://git@([^/]+)/([^/]+)/(.+?)(?:\.git)?$`)
+	if matches := sshURLPattern.FindStringSubmatch(url); matches != nil {
 		return matches[2], matches[3], matches[1], nil
 	}
 
