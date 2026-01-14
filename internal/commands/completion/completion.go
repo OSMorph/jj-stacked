@@ -12,17 +12,17 @@ func NewCommand(rootCmd *cobra.Command) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "completion [bash|zsh|fish|powershell]",
 		Short: "Generate shell completion scripts",
-		Long: `Generate shell completion scripts for jj-stacked (and jjs alias).
+		Long: `Generate shell completion scripts for jj-stacked (and jjk alias).
 
 To load completions:
 
 Bash:
-  $ source <(jjs completion bash)
+  $ source <(jjk completion bash)
   # To load completions for each session, execute once:
   # Linux:
-  $ jjs completion bash > /etc/bash_completion.d/jjs
+  $ jjk completion bash > /etc/bash_completion.d/jjk
   # macOS:
-  $ jjs completion bash > $(brew --prefix)/etc/bash_completion.d/jjs
+  $ jjk completion bash > $(brew --prefix)/etc/bash_completion.d/jjk
 
 Zsh:
   # If shell completion is not already enabled in your environment,
@@ -30,21 +30,21 @@ Zsh:
   $ echo "autoload -U compinit; compinit" >> ~/.zshrc
 
   # To load completions for each session, execute once:
-  $ jjs completion zsh > "${fpath[1]}/_jjs"
+  $ jjk completion zsh > "${fpath[1]}/_jjk"
   # You may need to start a new shell for this setup to take effect.
 
 Fish:
-  $ jjs completion fish | source
+  $ jjk completion fish | source
   # To load completions for each session, execute once:
-  $ jjs completion fish > ~/.config/fish/completions/jjs.fish
+  $ jjk completion fish > ~/.config/fish/completions/jjk.fish
 
 PowerShell:
-  PS> jjs completion powershell | Out-String | Invoke-Expression
+  PS> jjk completion powershell | Out-String | Invoke-Expression
   # To load completions for every new session, run:
-  PS> jjs completion powershell > jjs.ps1
+  PS> jjk completion powershell > jjk.ps1
   # and source this file from your PowerShell profile.
 
-Note: Both 'jj-stacked' and 'jjs' commands use the same completions.
+Note: Both 'jj-stacked' and 'jjk' commands use the same completions.
 `,
 		DisableFlagsInUseLine: true,
 		ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},

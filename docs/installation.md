@@ -22,7 +22,28 @@ If you don't have Jujutsu installed, see the [Jujutsu installation guide](https:
 
 ## Installation Methods
 
-### From Source (Recommended)
+### From Releases (Recommended)
+
+Download the latest release for your platform from GitHub Releases:
+
+```bash
+# macOS Apple Silicon
+curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_darwin_arm64.tar.gz | tar xz
+
+# macOS Intel
+curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_darwin_amd64.tar.gz | tar xz
+
+# Linux x86_64
+curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_linux_amd64.tar.gz | tar xz
+
+# Linux ARM64
+curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_linux_arm64.tar.gz | tar xz
+
+# Then move to your PATH
+sudo mv jj-stacked jjk /usr/local/bin/
+```
+
+### Using go install
 
 Install the latest version directly from the repository:
 
@@ -40,6 +61,12 @@ Verify installation:
 
 ```bash
 jj-stacked --version
+```
+
+Note: This only installs `jj-stacked`. To use the `jjk` alias, install from a release or create a symlink:
+
+```bash
+ln -sf "$(go env GOPATH)/bin/jj-stacked" "$(go env GOPATH)/bin/jjk"
 ```
 
 ### Build from Source
@@ -64,19 +91,12 @@ go build -o jj-stacked ./cmd/jj-stacked
 Optionally install to your PATH:
 
 ```bash
-# Install to ~/go/bin
-go install ./cmd/jj-stacked
+# Install both jj-stacked and jjk to ~/go/bin
+make install
 
 # Or copy manually
 sudo cp jj-stacked /usr/local/bin/
-```
-
-### Development Build
-
-For development with debug symbols:
-
-```bash
-make dev
+sudo ln -sf /usr/local/bin/jj-stacked /usr/local/bin/jjk
 ```
 
 ## Post-Installation Setup
@@ -184,19 +204,22 @@ make build
 
 ## Uninstalling
 
-Remove the binary:
+Remove the binaries:
 
 ```bash
 # If installed via go install
-rm $(which jj-stacked)
+rm -f "$(go env GOPATH)/bin/jj-stacked" "$(go env GOPATH)/bin/jjk"
 
 # Or from ~/go/bin explicitly
-rm ~/go/bin/jj-stacked
+rm -f ~/go/bin/jj-stacked ~/go/bin/jjk
+
+# Or if installed to /usr/local/bin
+sudo rm -f /usr/local/bin/jj-stacked /usr/local/bin/jjk
 ```
 
 ## Troubleshooting Installation
 
-### "command not found: jj-stacked"
+### "command not found: jj-stacked" or "command not found: jjk"
 
 Ensure Go's bin directory is in your PATH:
 

@@ -6,7 +6,7 @@ LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 
 # Binary names and paths
 BINARY := jj-stacked
-ALIAS := jjs
+ALIAS := jjk
 CMD_PATH := ./cmd/jj-stacked
 INSTALL_DIR := $(shell go env GOPATH)/bin
 
@@ -19,7 +19,7 @@ all: build
 build:
 	go build $(LDFLAGS) -o $(BINARY) $(CMD_PATH)
 
-# Build both jj-stacked and jjs binaries
+# Build both jj-stacked and jjk binaries
 build-all: build
 	cp $(BINARY) $(ALIAS)
 

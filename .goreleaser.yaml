@@ -28,9 +28,9 @@ builds:
       - goos: windows
         goarch: arm64
 
-  - id: jjs
+  - id: jjk
     main: ./cmd/jj-stacked
-    binary: jjs
+    binary: jjk
     env:
       - CGO_ENABLED=0
     goos:
@@ -51,7 +51,7 @@ archives:
   - id: default
     builds:
       - jj-stacked
-      - jjs
+      - jjk
     format: tar.gz
     name_template: >-
       {{ .ProjectName }}_
@@ -116,11 +116,11 @@ release:
 
     ### Installation
 
-    Each release includes both `jj-stacked` and the shorter `jjs` alias.
+    Each release includes both `jj-stacked` and the shorter `jjk` alias.
 
     ```bash
     # Download and extract the archive for your platform
-    # Both jj-stacked and jjs binaries are included
+    # Both jj-stacked and jjk binaries are included
 
     # Or using Go (installs jj-stacked only)
     go install github.com/OSMorph/jj-stacked/cmd/jj-stacked@{{ .Tag }}

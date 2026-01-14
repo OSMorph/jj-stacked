@@ -2,28 +2,28 @@
 
 Stacked pull requests for Jujutsu users.
 
-`jj-stacked` (also available as `jjs`) is a CLI tool for creating and managing stacked pull requests on GitHub for developers using [Jujutsu (jj)](https://github.com/martinvonz/jj) version control.
+`jj-stacked` (also available as `jjk`) is a CLI tool for creating and managing stacked pull requests on GitHub for developers using [Jujutsu (jj)](https://github.com/martinvonz/jj) version control.
 
 ## Quick Start
 
 ```bash
 # Download latest release (macOS Apple Silicon example)
 curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_darwin_arm64.tar.gz | tar xz
-sudo mv jj-stacked jjs /usr/local/bin/
+sudo mv jj-stacked jjk /usr/local/bin/
 
 # Authenticate (if you have GitHub CLI)
 gh auth login
 
 # View your bookmark stacks
-jjs
+jjk
 
 # Submit a stack of PRs
-jjs submit my-feature
+jjk submit my-feature
 ```
 
 See [Releases](https://github.com/OSMorph/jj-stacked/releases) for all platforms (macOS, Linux, Windows).
 
-> **Note:** `jjs` is a short alias for `jj-stacked`. All examples in this README work with either command.
+> **Note:** `jjk` is a short alias for `jj-stacked`. All examples in this README work with either command.
 
 ## Features
 
@@ -61,7 +61,7 @@ curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stack
 curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_linux_arm64.tar.gz | tar xz
 
 # Then move to your PATH
-sudo mv jj-stacked jjs /usr/local/bin/
+sudo mv jj-stacked jjk /usr/local/bin/
 ```
 
 ### Using go install
@@ -70,7 +70,7 @@ sudo mv jj-stacked jjs /usr/local/bin/
 go install github.com/OSMorph/jj-stacked/cmd/jj-stacked@latest
 ```
 
-Note: This only installs `jj-stacked`. For the `jjs` alias, use another installation method.
+Note: This only installs `jj-stacked`. For the `jjk` alias, use another installation method.
 
 ### Build Locally
 
@@ -80,7 +80,7 @@ cd jj-stacked
 make install
 ```
 
-This installs both `jj-stacked` and the shorter `jjs` alias to your `$GOPATH/bin`.
+This installs both `jj-stacked` and the shorter `jjk` alias to your `$GOPATH/bin`.
 
 ## Authentication
 
@@ -209,13 +209,13 @@ See [Usage Guide](docs/usage.md#merging-and-syncing-stacks) for more details on 
 
 ## Commands
 
-All commands work with both `jj-stacked` and `jjs`.
+All commands work with both `jj-stacked` and `jjk`.
 
-### `jjs` / `jj-stacked` (default)
+### `jjk` / `jj-stacked` (default)
 
 Launch interactive graph view showing all bookmark stacks.
 
-### `jjs analyze`
+### `jjk analyze`
 
 Analyze and display bookmark stacks.
 
@@ -225,7 +225,7 @@ Analyze and display bookmark stacks.
 | `--no-fetch` | Skip fetching from remotes |
 | `--debug` | Enable debug output |
 
-### `jjs submit <bookmark>`
+### `jjk submit <bookmark>`
 
 Submit a bookmark stack as pull requests.
 
@@ -236,7 +236,7 @@ Submit a bookmark stack as pull requests.
 | `--remote <name>` | Specify remote to push to |
 | `--debug` | Enable debug output |
 
-### `jjs sync`
+### `jjk sync`
 
 Sync local stack after PRs are merged on GitHub.
 
@@ -248,7 +248,7 @@ Sync local stack after PRs are merged on GitHub.
 | `--yes`, `-y` | Skip confirmation prompt |
 | `--debug` | Enable debug output |
 
-### `jjs auth test`
+### `jjk auth test`
 
 Test GitHub authentication.
 
@@ -256,7 +256,7 @@ Test GitHub authentication.
 |------|-------------|
 | `--host <hostname>` | GitHub host to test (default: auto-detect) |
 
-### `jjs auth help`
+### `jjk auth help`
 
 Show detailed authentication setup instructions.
 
@@ -299,8 +299,8 @@ jj bookmark list
 
 Check your authentication:
 ```bash
-jjs auth test
-jjs auth help
+jjk auth test
+jjk auth help
 ```
 
 ### "merge commit detected"
