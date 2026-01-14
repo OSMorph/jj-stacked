@@ -3,23 +3,35 @@ package jjutils
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	apperrors "github.com/OSMorph/jj-stacked/internal/errors"
 )
 
 // ListBookmarks returns all local bookmarks.
 func (j *jjFunctions) ListBookmarks(ctx context.Context) ([]Bookmark, error) {
-	args := []string{"bookmark", "list", "-T", bookmarkTemplate}
-	output, err := j.exec.Run(ctx, j.jjCmd(), args...)
+	bookmarks, err := j.listLocalBookmarks(ctx)
 	if err != nil {
-		return nil, &apperrors.JJError{
-			Command: j.jjCmd(),
-			Args:    args,
-			Err:     err,
+		return nil, err
+	}
+
+	remoteBookmarks, err := j.getRemoteBookmarks(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Merge remote tracking info into bookmark list
+	for i, bm := range bookmarks {
+		if remote, ok := remoteBookmarks[bm.Name]; ok {
+			bookmarks[i].HasRemote = true
+			bookmarks[i].RemoteName = remote.Remote
+			if remote.ChangeID == bm.ChangeID {
+				bookmarks[i].IsSynced = true
+			}
 		}
 	}
 
-	return parseBookmarks(output)
+	return bookmarks, nil
 }
 
 // ListUserBookmarks returns bookmarks that are not on trunk.
@@ -140,4 +152,54 @@ func (j *jjFunctions) GetBookmarkByName(ctx context.Context, name string) (*Book
 		Field:   "bookmark",
 		Message: fmt.Sprintf("bookmark %q not found", name),
 	}
+}
+
+// listLocalBookmarks returns bookmarks using the template (no remote tracking info).
+func (j *jjFunctions) listLocalBookmarks(ctx context.Context) ([]Bookmark, error) {
+	args := []string{"bookmark", "list", "-T", bookmarkTemplate}
+	output, err := j.exec.Run(ctx, j.jjCmd(), args...)
+	if err != nil {
+		return nil, &apperrors.JJError{
+			Command: j.jjCmd(),
+			Args:    args,
+			Err:     err,
+		}
+	}
+
+	return parseBookmarks(output)
+}
+
+type remoteBookmarkInfo struct {
+	ChangeID string
+	Remote   string
+}
+
+// getRemoteBookmarks returns a map of bookmark name -> remote info from remote bookmarks.
+func (j *jjFunctions) getRemoteBookmarks(ctx context.Context) (map[string]remoteBookmarkInfo, error) {
+	entries, err := j.GetLog(ctx, "remote_bookmarks()", 0)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]remoteBookmarkInfo)
+	for _, entry := range entries {
+		for _, rb := range entry.RemoteBookmarks {
+			// remote bookmarks are in the form name@remote
+			parts := strings.SplitN(rb, "@", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			name := parts[0]
+			remote := parts[1]
+			// Keep first occurrence (most recent in log is fine)
+			if _, exists := result[name]; !exists {
+				result[name] = remoteBookmarkInfo{
+					ChangeID: entry.ChangeID,
+					Remote:   remote,
+				}
+			}
+		}
+	}
+
+	return result, nil
 }

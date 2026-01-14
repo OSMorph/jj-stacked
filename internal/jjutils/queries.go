@@ -43,7 +43,8 @@ const logEntryTemplate = "concat(" +
 
 // bookmarkTemplate is the jj template for getting bookmark information.
 // For jj 0.27+, bookmark list uses self.normal_target() to get commit info.
-// We compare tracking status (ahead/behind) to detect divergence without requiring tracking_target().
+// We keep has_remote/is_synced as placeholders (computed in Go by comparing
+// local bookmarks to remote bookmarks from jj log).
 // Produces delimited output: fields separated by 0x1F, records by 0x1E.
 // Field order: name, commit_id, change_id, has_remote, is_synced
 // Note: jj only interprets escape sequences in double quotes, so we use \"\\x1f\" for delimiters.
@@ -53,11 +54,8 @@ const bookmarkTemplate = "if(" +
 	"name, \"\\x1f\"," +
 	"self.normal_target().commit_id().short(), \"\\x1f\"," +
 	"self.normal_target().change_id().short(), \"\\x1f\"," +
-	"if(self.normal_target().tracking_present(), \"true\", \"false\"), \"\\x1f\"," +
-	"if(self.normal_target().tracking_present()," +
-	"if(self.normal_target().tracking_ahead_count() == 0 && self.normal_target().tracking_behind_count() == 0, \"true\", \"false\")," +
-	"\"false\"" +
-	")," +
+	"\"false\", \"\\x1f\"," + // has_remote placeholder
+	"\"false\"," +           // is_synced placeholder
 	"\"\\x1e\"" +
 	")," +
 	"\"\"" +
