@@ -175,7 +175,8 @@ type remoteBookmarkInfo struct {
 
 // getRemoteBookmarks returns a map of bookmark name -> remote info from remote bookmarks.
 func (j *jjFunctions) getRemoteBookmarks(ctx context.Context) (map[string]remoteBookmarkInfo, error) {
-	entries, err := j.GetLog(ctx, "remote_bookmarks()", 0)
+	// Use heads(remote_bookmarks()) to get the current positions of remote bookmarks
+	entries, err := j.GetLog(ctx, "heads(remote_bookmarks())", 0)
 	if err != nil {
 		return nil, err
 	}
@@ -190,13 +191,11 @@ func (j *jjFunctions) getRemoteBookmarks(ctx context.Context) (map[string]remote
 			}
 			name := cleanBookmarkMarkers(parts[0])
 			remote := cleanBookmarkMarkers(parts[1])
-			// Keep first occurrence (most recent in log is fine)
-			if _, exists := result[name]; !exists {
-				result[name] = remoteBookmarkInfo{
-					CommitID: entry.CommitID,
-					ChangeID: entry.ChangeID,
-					Remote:   remote,
-				}
+			// Store the latest (heads) entry for each remote bookmark
+			result[name] = remoteBookmarkInfo{
+				CommitID: entry.CommitID,
+				ChangeID: entry.ChangeID,
+				Remote:   remote,
 			}
 		}
 	}
