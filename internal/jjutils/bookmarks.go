@@ -25,9 +25,7 @@ func (j *jjFunctions) ListBookmarks(ctx context.Context) ([]Bookmark, error) {
 		if remote, ok := remoteBookmarks[bm.Name]; ok {
 			bookmarks[i].HasRemote = true
 			bookmarks[i].RemoteName = remote.Remote
-			if remote.ChangeID == bm.ChangeID {
-				bookmarks[i].IsSynced = true
-			}
+			bookmarks[i].IsSynced = remote.CommitID == bm.CommitID
 		}
 	}
 
@@ -170,6 +168,7 @@ func (j *jjFunctions) listLocalBookmarks(ctx context.Context) ([]Bookmark, error
 }
 
 type remoteBookmarkInfo struct {
+	CommitID string
 	ChangeID string
 	Remote   string
 }
@@ -189,11 +188,12 @@ func (j *jjFunctions) getRemoteBookmarks(ctx context.Context) (map[string]remote
 			if len(parts) != 2 {
 				continue
 			}
-			name := parts[0]
-			remote := parts[1]
+			name := cleanBookmarkMarkers(parts[0])
+			remote := cleanBookmarkMarkers(parts[1])
 			// Keep first occurrence (most recent in log is fine)
 			if _, exists := result[name]; !exists {
 				result[name] = remoteBookmarkInfo{
+					CommitID: entry.CommitID,
 					ChangeID: entry.ChangeID,
 					Remote:   remote,
 				}
