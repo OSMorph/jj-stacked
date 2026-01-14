@@ -164,7 +164,28 @@ func (j *jjFunctions) listLocalBookmarks(ctx context.Context) ([]Bookmark, error
 		}
 	}
 
-	return parseBookmarks(output)
+	raw, err := parseBookmarks(output)
+	if err != nil {
+		return nil, err
+	}
+
+	var locals []Bookmark
+	seen := make(map[string]bool)
+	for _, bm := range raw {
+		// Skip remote bookmarks (they include "@remote" in the name)
+		if strings.Contains(bm.Name, "@") {
+			continue
+		}
+		clean := cleanBookmarkMarkers(bm.Name)
+		if seen[clean] {
+			continue
+		}
+		bm.Name = clean
+		locals = append(locals, bm)
+		seen[clean] = true
+	}
+
+	return locals, nil
 }
 
 type remoteBookmarkInfo struct {
