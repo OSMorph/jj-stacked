@@ -22,6 +22,9 @@ func CreateSyncPlan(analysis *SyncAnalysis) (*SyncPlan, error) {
 		Analysis: analysis,
 	}
 
+	// Add bookmarks that need pushing (ahead of origin)
+	plan.ToPush = analysis.BookmarksNeedingPush
+
 	// Order bookmarks to abandon (should already be in bottom-up order from analysis)
 	for _, m := range analysis.MergedBookmarks {
 		plan.ToAbandon = append(plan.ToAbandon, m.Name)
@@ -34,6 +37,7 @@ func CreateSyncPlan(analysis *SyncAnalysis) (*SyncPlan, error) {
 
 	// Build summary
 	plan.Summary = SyncSummary{
+		PushCount:    len(plan.ToPush),
 		MergedCount:  len(analysis.MergedBookmarks),
 		AbandonCount: len(plan.ToAbandon),
 		RebaseCount:  len(plan.ToRebase),
@@ -53,6 +57,16 @@ func FormatPlan(plan *SyncPlan) string {
 	if plan.IsEmpty() {
 		sb.WriteString("  Nothing to sync - all bookmarks are up to date.\n")
 		return sb.String()
+	}
+
+	// Show bookmarks to push (ahead of origin)
+	if len(plan.ToPush) > 0 {
+		sb.WriteString(fmt.Sprintf("  Push (%d bookmark%s ahead of origin):\n",
+			len(plan.ToPush), pluralize(len(plan.ToPush))))
+		for _, name := range plan.ToPush {
+			sb.WriteString(fmt.Sprintf("    - %s\n", name))
+		}
+		sb.WriteString("\n")
 	}
 
 	// Show merged bookmarks to abandon
@@ -94,6 +108,10 @@ func FormatPlanCompact(plan *SyncPlan) string {
 	}
 
 	var parts []string
+
+	if plan.Summary.PushCount > 0 {
+		parts = append(parts, fmt.Sprintf("push %d", plan.Summary.PushCount))
+	}
 
 	if plan.Summary.AbandonCount > 0 {
 		parts = append(parts, fmt.Sprintf("abandon %d", plan.Summary.AbandonCount))

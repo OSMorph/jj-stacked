@@ -32,20 +32,21 @@ func NewCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Sync local stack after PRs are merged",
-		Long: `Synchronize your local stack with merged pull requests.
+		Short: "Sync local stack with remote (push changes, clean up merged PRs)",
+		Long: `Synchronize your local stack with the remote repository.
 
-This command automates the post-merge workflow:
-1. Fetches the latest changes from the remote
-2. Detects which PRs have been merged
-3. Abandons the corresponding local changes
-4. Rebases remaining bookmarks onto the updated trunk
+This command handles bidirectional synchronization:
+1. Pushes local bookmarks that are ahead of origin
+2. Fetches the latest changes from the remote
+3. Detects which PRs have been merged
+4. Abandons the corresponding local changes
+5. Rebases remaining bookmarks onto the updated trunk
 
 EXAMPLES:
   # Preview what would be synced (recommended first)
   jj-stacked sync --dry-run
 
-  # Sync after merging PRs
+  # Sync local changes to remote and clean up merged PRs
   jj-stacked sync
 
   # Continue sync after resolving conflicts
@@ -58,9 +59,9 @@ EXAMPLES:
   jj-stacked sync --yes
 
 WORKFLOW:
-  After merging PRs on GitHub (bottom-to-top), run this command
-  to clean up your local stack. It will remove the merged bookmarks
-  and rebase any remaining work onto the updated trunk.`,
+  Run this command to push local changes to GitHub and clean up
+  after merging PRs. It will push any bookmarks ahead of origin,
+  remove merged bookmarks, and rebase remaining work onto trunk.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSync(cmd.Context(), opts)
 		},
@@ -141,8 +142,8 @@ func runSync(ctx context.Context, opts *Options) error {
 	}
 
 	// Check if there's anything to sync
-	if !analysis.HasMergedBookmarks() {
-		fmt.Printf("\nNo merged PRs found. Stack is already up to date.\n")
+	if !analysis.HasMergedBookmarks() && !analysis.HasBookmarksToPush() {
+		fmt.Printf("\nNo merged PRs found and no bookmarks need pushing. Stack is already up to date.\n")
 		return nil
 	}
 
@@ -183,6 +184,14 @@ func runSync(ctx context.Context, opts *Options) error {
 	}
 
 	callbacks := &sync.SyncCallbacks{
+		OnPushStart: func(bookmark string) {
+			fmt.Printf("  Pushing %s...\n", bookmark)
+		},
+		OnPushComplete: func(bookmark string, err error) {
+			if err != nil {
+				fmt.Printf("    Failed: %v\n", err)
+			}
+		},
 		OnFetchStart: func() {
 			fmt.Printf("  Fetching from remotes...\n")
 		},

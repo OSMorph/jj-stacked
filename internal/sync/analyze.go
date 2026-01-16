@@ -54,6 +54,13 @@ func AnalyzeSync(
 		return analysis, nil
 	}
 
+	// Check which bookmarks need to be pushed (ahead of origin)
+	for _, bm := range bookmarks {
+		if bm.NeedsPush() {
+			analysis.BookmarksNeedingPush = append(analysis.BookmarksNeedingPush, bm.Name)
+		}
+	}
+
 	// Step 3: Build the change graph to understand stack structure
 	graph, err := jj.BuildChangeGraph(ctx)
 	if err != nil {

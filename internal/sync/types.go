@@ -18,6 +18,9 @@ type SyncAnalysis struct {
 	// RemainingBookmarks are bookmarks that remain after sync (not merged)
 	RemainingBookmarks []string
 
+	// BookmarksNeedingPush are bookmarks that are ahead of origin and need pushing
+	BookmarksNeedingPush []string
+
 	// TrunkBranch is the name of the trunk branch (main, master, trunk, etc.)
 	TrunkBranch string
 
@@ -57,6 +60,9 @@ type MergedBookmark struct {
 
 // SyncPlan describes what actions will be taken during sync.
 type SyncPlan struct {
+	// ToPush lists bookmarks to push to remote (ahead of origin)
+	ToPush []string
+
 	// ToAbandon lists bookmarks to abandon (in order, bottom-up from trunk)
 	ToAbandon []string
 
@@ -78,6 +84,9 @@ type SyncPlan struct {
 
 // SyncSummary provides counts and info for display.
 type SyncSummary struct {
+	// PushCount is the number of bookmarks to push
+	PushCount int
+
 	// MergedCount is the number of PRs that were merged
 	MergedCount int
 
@@ -93,6 +102,9 @@ type SyncSummary struct {
 
 // SyncResult is the outcome of executing a sync operation.
 type SyncResult struct {
+	// Pushed lists bookmarks that were successfully pushed
+	Pushed []string
+
 	// Abandoned lists bookmarks that were successfully abandoned
 	Abandoned []string
 
@@ -114,6 +126,12 @@ type SyncResult struct {
 
 // SyncCallbacks allows callers to receive progress updates during sync.
 type SyncCallbacks struct {
+	// OnPushStart is called when a bookmark push begins
+	OnPushStart func(bookmark string)
+
+	// OnPushComplete is called when a bookmark push completes
+	OnPushComplete func(bookmark string, err error)
+
 	// OnFetchStart is called when fetch begins
 	OnFetchStart func()
 
@@ -145,7 +163,12 @@ func (a *SyncAnalysis) HasMergedBookmarks() bool {
 
 // IsEmpty returns true if there's nothing to sync.
 func (p *SyncPlan) IsEmpty() bool {
-	return len(p.ToAbandon) == 0 && !p.NeedsRebase
+	return len(p.ToPush) == 0 && len(p.ToAbandon) == 0 && !p.NeedsRebase
+}
+
+// HasBookmarksToPush returns true if any bookmarks need to be pushed.
+func (a *SyncAnalysis) HasBookmarksToPush() bool {
+	return len(a.BookmarksNeedingPush) > 0
 }
 
 // SyncState tracks an in-progress sync operation.

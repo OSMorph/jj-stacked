@@ -8,15 +8,16 @@ import (
 )
 
 // AIDEV-NOTE: ExecuteSync is the third phase of the three-phase sync architecture.
-// It performs the actual sync operations: fetch, abandon, and rebase.
+// It performs the actual sync operations: push, fetch, abandon, and rebase.
 // This phase should have no decision-making - all decisions were made in the planning phase.
 
 // ExecuteSync performs the sync operations defined in the plan.
 //
 // Execution order:
-// 1. Fetch from all remotes (get latest trunk state)
-// 2. Abandon merged bookmarks (in order, bottom-up from trunk)
-// 3. Rebase remaining bookmarks onto trunk
+// 1. Push bookmarks that are ahead of origin
+// 2. Fetch from all remotes (get latest trunk state)
+// 3. Abandon merged bookmarks (in order, bottom-up from trunk)
+// 4. Rebase remaining bookmarks onto trunk
 //
 // Parameters:
 //   - ctx: context for cancellation
@@ -39,7 +40,27 @@ func ExecuteSync(
 		return result
 	}
 
-	// Step 1: Fetch from all remotes
+	// Step 1: Push bookmarks that are ahead of origin
+	for _, bookmark := range plan.ToPush {
+		if callbacks != nil && callbacks.OnPushStart != nil {
+			callbacks.OnPushStart(bookmark)
+		}
+
+		err := jj.Push(ctx, "origin", bookmark)
+		if callbacks != nil && callbacks.OnPushComplete != nil {
+			callbacks.OnPushComplete(bookmark, err)
+		}
+
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("push %s failed: %w", bookmark, err))
+			result.Success = false
+			// Push failures are critical - abort execution
+			return result
+		}
+		result.Pushed = append(result.Pushed, bookmark)
+	}
+
+	// Step 2: Fetch from all remotes
 	if callbacks != nil && callbacks.OnFetchStart != nil {
 		callbacks.OnFetchStart()
 	}
@@ -54,7 +75,7 @@ func ExecuteSync(
 		return result
 	}
 
-	// Step 2: Abandon merged bookmarks
+	// Step 3: Abandon merged bookmarks
 	for _, bookmark := range plan.ToAbandon {
 		if callbacks != nil && callbacks.OnAbandon != nil {
 			callbacks.OnAbandon(bookmark)
@@ -75,7 +96,7 @@ func ExecuteSync(
 		}
 	}
 
-	// Step 3: Rebase remaining bookmarks onto trunk
+	// Step 4: Rebase remaining bookmarks onto trunk
 	if plan.NeedsRebase && len(plan.ToRebase) > 0 {
 		if callbacks != nil && callbacks.OnRebaseStart != nil {
 			callbacks.OnRebaseStart(plan.ToRebase)
@@ -143,6 +164,10 @@ func findStackRoots(plan *SyncPlan) []string {
 func FormatResult(result *SyncResult) string {
 	if result.Success {
 		var parts []string
+		if len(result.Pushed) > 0 {
+			parts = append(parts, fmt.Sprintf("pushed %d bookmark%s",
+				len(result.Pushed), pluralize(len(result.Pushed))))
+		}
 		if len(result.Abandoned) > 0 {
 			parts = append(parts, fmt.Sprintf("abandoned %d bookmark%s",
 				len(result.Abandoned), pluralize(len(result.Abandoned))))
