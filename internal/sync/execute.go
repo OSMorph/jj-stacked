@@ -116,8 +116,12 @@ func ExecuteSync(
 		}
 	}
 
-	// Step 4: Push bookmarks that are ahead of origin (after rebase they may have new commits)
-	for _, bookmark := range plan.ToPush {
+	// Step 4: Push bookmarks that need pushing
+	// After a rebase, ALL rebased bookmarks have new commits and need pushing
+	// We merge the original ToPush list with all rebased bookmarks
+	bookmarksToPush := buildPushList(plan.ToPush, result.Rebased)
+
+	for _, bookmark := range bookmarksToPush {
 		if callbacks != nil && callbacks.OnPushStart != nil {
 			callbacks.OnPushStart(bookmark)
 		}
@@ -133,6 +137,32 @@ func ExecuteSync(
 			// Continue trying to push remaining bookmarks
 		} else {
 			result.Pushed = append(result.Pushed, bookmark)
+		}
+	}
+
+	return result
+}
+
+// buildPushList combines the original push list with rebased bookmarks,
+// ensuring no duplicates. Rebased bookmarks always need pushing since
+// they have new commit IDs after rebase.
+func buildPushList(originalToPush, rebased []string) []string {
+	seen := make(map[string]bool)
+	var result []string
+
+	// Add all rebased bookmarks first (they definitely need pushing)
+	for _, bm := range rebased {
+		if !seen[bm] {
+			seen[bm] = true
+			result = append(result, bm)
+		}
+	}
+
+	// Add any from original list that weren't rebased
+	for _, bm := range originalToPush {
+		if !seen[bm] {
+			seen[bm] = true
+			result = append(result, bm)
 		}
 	}
 

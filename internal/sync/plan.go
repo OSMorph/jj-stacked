@@ -102,7 +102,11 @@ func FormatPlan(plan *SyncPlan) string {
 	}
 
 	// Show bookmarks to push (after rebase)
-	if len(plan.ToPush) > 0 {
+	// If we're rebasing, all rebased bookmarks will need pushing
+	if plan.NeedsRebase && len(plan.ToRebase) > 0 {
+		sb.WriteString(fmt.Sprintf("  %d. Push all rebased bookmarks (%d bookmark%s)\n",
+			step, len(plan.ToRebase), pluralize(len(plan.ToRebase))))
+	} else if len(plan.ToPush) > 0 {
 		sb.WriteString(fmt.Sprintf("  %d. Push (%d bookmark%s):\n",
 			step, len(plan.ToPush), pluralize(len(plan.ToPush))))
 		for _, name := range plan.ToPush {
