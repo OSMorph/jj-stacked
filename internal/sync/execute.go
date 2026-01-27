@@ -3,21 +3,22 @@ package sync
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/OSMorph/jj-stacked/internal/jjutils"
 )
 
 // AIDEV-NOTE: ExecuteSync is the third phase of the three-phase sync architecture.
-// It performs the actual sync operations: push, fetch, abandon, and rebase.
+// It performs the actual sync operations: fetch, rebase, and push.
 // This phase should have no decision-making - all decisions were made in the planning phase.
 
 // ExecuteSync performs the sync operations defined in the plan.
 //
 // Execution order:
-// 1. Push bookmarks that are ahead of origin
-// 2. Fetch from all remotes (get latest trunk state)
-// 3. Abandon merged bookmarks (in order, bottom-up from trunk)
-// 4. Rebase remaining bookmarks onto trunk
+// 1. Fetch from all remotes (get latest trunk state)
+// 2. Abandon merged bookmarks (in order, bottom-up from trunk) - optional, may fail if already deleted
+// 3. Rebase remaining bookmarks onto trunk@origin
+// 4. Push bookmarks that are ahead of origin (after rebase)
 //
 // Parameters:
 //   - ctx: context for cancellation
@@ -40,27 +41,7 @@ func ExecuteSync(
 		return result
 	}
 
-	// Step 1: Push bookmarks that are ahead of origin
-	for _, bookmark := range plan.ToPush {
-		if callbacks != nil && callbacks.OnPushStart != nil {
-			callbacks.OnPushStart(bookmark)
-		}
-
-		err := jj.Push(ctx, "origin", bookmark)
-		if callbacks != nil && callbacks.OnPushComplete != nil {
-			callbacks.OnPushComplete(bookmark, err)
-		}
-
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("push %s failed: %w", bookmark, err))
-			result.Success = false
-			// Push failures are critical - abort execution
-			return result
-		}
-		result.Pushed = append(result.Pushed, bookmark)
-	}
-
-	// Step 2: Fetch from all remotes
+	// Step 1: Fetch from all remotes first to get latest trunk state
 	if callbacks != nil && callbacks.OnFetchStart != nil {
 		callbacks.OnFetchStart()
 	}
@@ -75,42 +56,43 @@ func ExecuteSync(
 		return result
 	}
 
-	// Step 3: Abandon merged bookmarks
+	// Step 2: Abandon merged bookmarks (best effort - may fail if bookmark was deleted)
 	for _, bookmark := range plan.ToAbandon {
 		if callbacks != nil && callbacks.OnAbandon != nil {
 			callbacks.OnAbandon(bookmark)
 		}
 
 		// Abandon by bookmark name (jj will resolve to the change)
+		// This may fail if the bookmark was already deleted when the remote branch was deleted
 		err := jj.Abandon(ctx, bookmark)
 		if callbacks != nil && callbacks.OnAbandonComplete != nil {
 			callbacks.OnAbandonComplete(bookmark, err)
 		}
 
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("abandon %s failed: %w", bookmark, err))
-			result.Success = false
-			// Continue trying to abandon remaining bookmarks
+			// Don't fail the sync if abandon fails - the bookmark may have been deleted
+			// when the remote branch was deleted on GitHub
+			result.Warnings = append(result.Warnings, fmt.Sprintf("abandon %s: %v (bookmark may have been auto-deleted)", bookmark, err))
 		} else {
 			result.Abandoned = append(result.Abandoned, bookmark)
 		}
 	}
 
-	// Step 4: Rebase remaining bookmarks onto trunk
+	// Step 3: Rebase remaining bookmarks onto trunk@origin
 	if plan.NeedsRebase && len(plan.ToRebase) > 0 {
 		if callbacks != nil && callbacks.OnRebaseStart != nil {
 			callbacks.OnRebaseStart(plan.ToRebase)
 		}
 
-		// Find the root(s) of the remaining stack(s) and rebase them
-		// We use trunk() as the destination which jj will resolve correctly
+		// Find the root(s) of the remaining stack(s) and rebase them onto trunk@origin
 		roots := findStackRoots(plan)
 
 		var rebaseErr error
 		for _, root := range roots {
-			err := jj.Rebase(ctx, root, "trunk()")
+			// Use the plan's rebase target (e.g., "main@origin")
+			err := jj.Rebase(ctx, root, plan.RebaseTarget)
 			if err != nil {
-				rebaseErr = fmt.Errorf("rebase %s failed: %w", root, err)
+				rebaseErr = fmt.Errorf("rebase %s onto %s failed: %w", root, plan.RebaseTarget, err)
 				result.Errors = append(result.Errors, rebaseErr)
 				result.Success = false
 				break
@@ -130,6 +112,27 @@ func ExecuteSync(
 		if err == nil && hasConflicts {
 			result.HasConflicts = true
 			result.Success = false
+			return result
+		}
+	}
+
+	// Step 4: Push bookmarks that are ahead of origin (after rebase they may have new commits)
+	for _, bookmark := range plan.ToPush {
+		if callbacks != nil && callbacks.OnPushStart != nil {
+			callbacks.OnPushStart(bookmark)
+		}
+
+		err := jj.Push(ctx, "origin", bookmark)
+		if callbacks != nil && callbacks.OnPushComplete != nil {
+			callbacks.OnPushComplete(bookmark, err)
+		}
+
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("push %s failed: %w", bookmark, err))
+			result.Success = false
+			// Continue trying to push remaining bookmarks
+		} else {
+			result.Pushed = append(result.Pushed, bookmark)
 		}
 	}
 
@@ -162,8 +165,14 @@ func findStackRoots(plan *SyncPlan) []string {
 
 // FormatResult returns a human-readable summary of the sync result.
 func FormatResult(result *SyncResult) string {
+	var sb strings.Builder
+
 	if result.Success {
 		var parts []string
+		if len(result.Rebased) > 0 {
+			parts = append(parts, fmt.Sprintf("rebased %d bookmark%s",
+				len(result.Rebased), pluralize(len(result.Rebased))))
+		}
 		if len(result.Pushed) > 0 {
 			parts = append(parts, fmt.Sprintf("pushed %d bookmark%s",
 				len(result.Pushed), pluralize(len(result.Pushed))))
@@ -172,25 +181,28 @@ func FormatResult(result *SyncResult) string {
 			parts = append(parts, fmt.Sprintf("abandoned %d bookmark%s",
 				len(result.Abandoned), pluralize(len(result.Abandoned))))
 		}
-		if len(result.Rebased) > 0 {
-			parts = append(parts, fmt.Sprintf("rebased %d bookmark%s",
-				len(result.Rebased), pluralize(len(result.Rebased))))
-		}
 		if len(parts) == 0 {
-			return "Sync complete - nothing to do"
+			sb.WriteString("Sync complete - nothing to do")
+		} else {
+			sb.WriteString(fmt.Sprintf("Sync complete: %s", joinParts(parts)))
 		}
-		return fmt.Sprintf("Sync complete: %s", joinParts(parts))
+	} else if result.HasConflicts {
+		sb.WriteString("Sync paused: rebase resulted in conflicts. Resolve conflicts and run 'jj-stacked sync --continue'")
+	} else if len(result.Errors) > 0 {
+		sb.WriteString(fmt.Sprintf("Sync failed: %v", result.Errors[0]))
+	} else {
+		sb.WriteString("Sync failed")
 	}
 
-	if result.HasConflicts {
-		return "Sync paused: rebase resulted in conflicts. Resolve conflicts and run 'jj-stacked sync --continue'"
+	// Add warnings if any
+	if len(result.Warnings) > 0 {
+		sb.WriteString("\n\nWarnings:")
+		for _, w := range result.Warnings {
+			sb.WriteString(fmt.Sprintf("\n  - %s", w))
+		}
 	}
 
-	if len(result.Errors) > 0 {
-		return fmt.Sprintf("Sync failed: %v", result.Errors[0])
-	}
-
-	return "Sync failed"
+	return sb.String()
 }
 
 // joinParts joins strings with commas and "and" for the last item.

@@ -33,15 +33,14 @@ func NewCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "sync [bookmark]",
-		Short: "Sync local stack with remote (push changes, clean up merged PRs)",
+		Short: "Sync local stack with remote (fetch, rebase, push)",
 		Long: `Synchronize your local stack with the remote repository.
 
-This command handles bidirectional synchronization:
-1. Pushes local bookmarks that are ahead of origin
-2. Fetches the latest changes from the remote
-3. Detects which PRs have been merged
-4. Abandons the corresponding local changes
-5. Rebases remaining bookmarks onto the updated trunk
+This command performs the following steps:
+1. Fetches the latest changes from all remotes
+2. Abandons any bookmarks whose PRs have been merged (if detected)
+3. Rebases the stack onto the updated trunk (e.g., main@origin)
+4. Pushes bookmarks that are ahead of origin
 
 If a bookmark is specified, only that bookmark's stack will be synced.
 Otherwise, all stacks are synced.
@@ -50,7 +49,7 @@ EXAMPLES:
   # Preview what would be synced (recommended first)
   jj-stacked sync --dry-run
 
-  # Sync local changes to remote and clean up merged PRs
+  # Sync all stacks
   jj-stacked sync
 
   # Sync only a specific bookmark's stack
@@ -66,9 +65,9 @@ EXAMPLES:
   jj-stacked sync --yes
 
 WORKFLOW:
-  Run this command to push local changes to GitHub and clean up
-  after merging PRs. It will push any bookmarks ahead of origin,
-  remove merged bookmarks, and rebase remaining work onto trunk.`,
+  After merging PRs on GitHub, run this command to sync your local
+  stack. It will fetch the latest trunk, rebase your stack onto it,
+  and push the updated bookmarks.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {

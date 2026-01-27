@@ -240,11 +240,14 @@ Submit a bookmark stack as pull requests.
 
 ### `jjk sync [bookmark]`
 
-Sync local stack after PRs are merged on GitHub. This command automates the post-merge cleanup by abandoning merged bookmarks and rebasing remaining work.
+Sync local stack with remote. This command:
+1. Fetches the latest changes from all remotes
+2. Rebases the stack onto the updated trunk (e.g., `main@origin`)
+3. Pushes bookmarks that are ahead of origin
 
 If a bookmark is specified, only that bookmark's stack will be synced. Otherwise, all stacks are synced.
 
-> **Note:** `sync` only processes PRs that were merged from the **bottom** of the stack upward. If you merge a PR out of order (e.g., the top of the stack first), `sync` will not detect it. Always merge PRs from bottom to top.
+This is useful after merging PRs on GitHub - it will automatically rebase your remaining stack onto the updated main branch.
 
 | Flag | Description |
 |------|-------------|
@@ -259,7 +262,7 @@ If a bookmark is specified, only that bookmark's stack will be synced. Otherwise
 # Sync all stacks
 jjk sync
 
-# Sync only a specific bookmark's stack
+# Sync only a specific bookmark's stack (recommended)
 jjk sync my-feature
 
 # Preview what would be synced for a specific stack

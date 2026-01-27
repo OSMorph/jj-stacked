@@ -118,6 +118,9 @@ type SyncResult struct {
 	// Rebased lists bookmarks that were successfully rebased
 	Rebased []string
 
+	// Warnings are non-fatal issues that occurred during execution
+	Warnings []string
+
 	// Errors are any errors that occurred during execution
 	Errors []error
 

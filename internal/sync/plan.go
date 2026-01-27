@@ -31,8 +31,13 @@ func CreateSyncPlan(analysis *SyncAnalysis) (*SyncPlan, error) {
 	}
 
 	// Determine if rebase is needed
-	plan.NeedsRebase = len(analysis.RemainingBookmarks) > 0 && len(analysis.MergedBookmarks) > 0
-	plan.RebaseTarget = analysis.TrunkBranch
+	// Always rebase remaining bookmarks onto trunk@origin to ensure they're up to date
+	// This handles cases where:
+	// 1. PRs were merged and we need to rebase onto updated trunk
+	// 2. The merged bookmark was already deleted (branch deleted on GitHub)
+	// 3. We just want to sync with upstream changes
+	plan.NeedsRebase = len(analysis.RemainingBookmarks) > 0
+	plan.RebaseTarget = fmt.Sprintf("%s@origin", analysis.TrunkBranch)
 	plan.ToRebase = analysis.RemainingBookmarks
 
 	// Build summary
@@ -59,26 +64,22 @@ func FormatPlan(plan *SyncPlan) string {
 		return sb.String()
 	}
 
-	// Show bookmarks to push (ahead of origin)
-	if len(plan.ToPush) > 0 {
-		sb.WriteString(fmt.Sprintf("  Push (%d bookmark%s ahead of origin):\n",
-			len(plan.ToPush), pluralize(len(plan.ToPush))))
-		for _, name := range plan.ToPush {
-			sb.WriteString(fmt.Sprintf("    - %s\n", name))
-		}
-		sb.WriteString("\n")
-	}
+	// Always show fetch first
+	sb.WriteString("  1. Fetch from all remotes\n\n")
+
+	step := 2
 
 	// Show merged bookmarks to abandon
 	if len(plan.ToAbandon) > 0 {
-		sb.WriteString(fmt.Sprintf("  Abandon (%d merged bookmark%s):\n",
-			len(plan.ToAbandon), pluralize(len(plan.ToAbandon))))
+		sb.WriteString(fmt.Sprintf("  %d. Abandon (%d merged bookmark%s):\n",
+			step, len(plan.ToAbandon), pluralize(len(plan.ToAbandon))))
+		step++
 
 		for i, name := range plan.ToAbandon {
 			// Find the corresponding merged bookmark for details
 			for _, m := range plan.Analysis.MergedBookmarks {
 				if m.Name == name {
-					sb.WriteString(fmt.Sprintf("    %d. %s (PR #%d", i+1, name, m.PRNumber))
+					sb.WriteString(fmt.Sprintf("       %d. %s (PR #%d", i+1, name, m.PRNumber))
 					if !m.MergedAt.IsZero() {
 						sb.WriteString(fmt.Sprintf(", merged %s", formatTimeAgo(m.MergedAt)))
 					}
@@ -92,9 +93,20 @@ func FormatPlan(plan *SyncPlan) string {
 
 	// Show bookmarks to rebase
 	if plan.NeedsRebase && len(plan.ToRebase) > 0 {
-		sb.WriteString(fmt.Sprintf("  Rebase onto %s:\n", plan.RebaseTarget))
+		sb.WriteString(fmt.Sprintf("  %d. Rebase onto %s:\n", step, plan.RebaseTarget))
+		step++
 		for _, name := range plan.ToRebase {
-			sb.WriteString(fmt.Sprintf("    - %s\n", name))
+			sb.WriteString(fmt.Sprintf("       - %s\n", name))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Show bookmarks to push (after rebase)
+	if len(plan.ToPush) > 0 {
+		sb.WriteString(fmt.Sprintf("  %d. Push (%d bookmark%s):\n",
+			step, len(plan.ToPush), pluralize(len(plan.ToPush))))
+		for _, name := range plan.ToPush {
+			sb.WriteString(fmt.Sprintf("       - %s\n", name))
 		}
 	}
 
