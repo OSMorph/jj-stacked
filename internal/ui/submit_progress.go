@@ -22,6 +22,7 @@ type SubmitProgressModel struct {
 	done        bool
 	spinner     spinner.Model
 	finalResult *submit.ExecutionResult
+	plan        *submit.SubmissionPlan
 	stackName   string
 	quitting    bool
 }
@@ -43,16 +44,17 @@ type SubmitDoneMsg struct {
 }
 
 // NewSubmitProgress creates a new submit progress model.
-func NewSubmitProgress(actions []submit.SubmissionAction, stackName string) SubmitProgressModel {
+func NewSubmitProgress(plan *submit.SubmissionPlan, stackName string) SubmitProgressModel {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(ColorPrimary)
 
 	return SubmitProgressModel{
-		actions:   actions,
-		results:   make([]submit.ActionResult, len(actions)),
+		actions:   plan.Actions,
+		results:   make([]submit.ActionResult, len(plan.Actions)),
 		current:   -1,
 		spinner:   s,
+		plan:      plan,
 		stackName: stackName,
 	}
 }
@@ -188,10 +190,10 @@ func (m SubmitProgressModel) View() string {
 			sb.WriteString(fmt.Sprintf("  Skipped: %d\n", m.finalResult.Summary.Skipped))
 		}
 
-		// Show created PR URLs
-		urls := submit.GetCreatedPRURLs(m.finalResult)
+		// Show all PR URLs (created and existing)
+		urls := submit.GetAllPRURLs(m.finalResult, m.plan)
 		if len(urls) > 0 {
-			sb.WriteString("\nCreated PRs:\n")
+			sb.WriteString("\nPull Requests:\n")
 			for _, url := range urls {
 				sb.WriteString(fmt.Sprintf("  %s %s\n", SuccessIndicator, url))
 			}

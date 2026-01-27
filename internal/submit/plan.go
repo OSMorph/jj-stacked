@@ -64,6 +64,12 @@ func CreateSubmissionPlan(
 
 		if pr != nil {
 			prInfo[sb.Bookmark.Name] = pr
+			// Track existing PR for display
+			plan.ExistingPRs = append(plan.ExistingPRs, ExistingPR{
+				Bookmark: sb.Bookmark.Name,
+				Number:   pr.Number,
+				URL:      pr.URL,
+			})
 			bookmarkChecked(sb.Bookmark.Name, true)
 		} else {
 			bookmarkChecked(sb.Bookmark.Name, false)

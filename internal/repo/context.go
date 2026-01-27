@@ -194,29 +194,38 @@ func getRemoteURL(ctx context.Context, exec cmdexec.CommandExecutor, remote stri
 //   - https://github.com/owner/repo.git
 //   - git@github.com:owner/repo.git
 //   - ssh://git@github.com/owner/repo.git
+//   - ssh://git@github.com:22/owner/repo.git (with port)
 //   - https://git.mycompany.com/owner/repo.git
 //   - git@git.mycompany.com:owner/repo.git
 func parseRemoteURL(url string) (owner, repo, host string, err error) {
+	// Trim whitespace and any trailing characters
+	url = strings.TrimSpace(url)
+
 	// SSH format: git@host:owner/repo.git
 	sshPattern := regexp.MustCompile(`^git@([^:]+):([^/]+)/(.+?)(?:\.git)?$`)
 	if matches := sshPattern.FindStringSubmatch(url); matches != nil {
-		return matches[2], matches[3], matches[1], nil
+		return matches[2], stripGitSuffix(matches[3]), matches[1], nil
 	}
 
-	// SSH URL format: ssh://git@host/owner/repo.git
-	sshURLPattern := regexp.MustCompile(`^ssh://git@([^/]+)/([^/]+)/(.+?)(?:\.git)?$`)
+	// SSH URL format: ssh://git@host/owner/repo.git or ssh://git@host:port/owner/repo.git
+	sshURLPattern := regexp.MustCompile(`^ssh://git@([^/:]+)(?::\d+)?/([^/]+)/(.+?)(?:\.git)?$`)
 	if matches := sshURLPattern.FindStringSubmatch(url); matches != nil {
-		return matches[2], matches[3], matches[1], nil
+		return matches[2], stripGitSuffix(matches[3]), matches[1], nil
 	}
 
 	// HTTPS format: https://host/owner/repo.git
 	httpsPattern := regexp.MustCompile(`^https?://([^/]+)/([^/]+)/(.+?)(?:\.git)?$`)
 	if matches := httpsPattern.FindStringSubmatch(url); matches != nil {
-		return matches[2], matches[3], matches[1], nil
+		return matches[2], stripGitSuffix(matches[3]), matches[1], nil
 	}
 
 	return "", "", "", &apperrors.ValidationError{
 		Field:   "remote_url",
 		Message: fmt.Sprintf("could not parse GitHub URL: %s", url),
 	}
+}
+
+// stripGitSuffix removes .git suffix if present (handles edge cases where regex didn't catch it)
+func stripGitSuffix(s string) string {
+	return strings.TrimSuffix(s, ".git")
 }

@@ -49,11 +49,21 @@ type StackBookmark struct {
 	Body string
 }
 
+// ExistingPR holds information about a PR that already exists.
+type ExistingPR struct {
+	Bookmark string
+	Number   int
+	URL      string
+}
+
 // SubmissionPlan is the output of the planning phase.
 // It contains the ordered list of actions to perform.
 type SubmissionPlan struct {
 	// Actions is the ordered list of actions to execute
 	Actions []SubmissionAction
+
+	// ExistingPRs tracks PRs that already exist (for display purposes)
+	ExistingPRs []ExistingPR
 
 	// Summary provides counts of planned operations
 	Summary PlanSummary

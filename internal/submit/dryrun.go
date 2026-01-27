@@ -57,6 +57,14 @@ func FormatDryRunOutput(analysis *AnalysisResult, plan *SubmissionPlan) string {
 		sb.WriteString("  • Nothing to do\n")
 	}
 
+	// Show existing PRs
+	if len(plan.ExistingPRs) > 0 {
+		sb.WriteString("\nExisting Pull Requests:\n")
+		for _, pr := range plan.ExistingPRs {
+			sb.WriteString(fmt.Sprintf("  • %s\n", pr.URL))
+		}
+	}
+
 	return sb.String()
 }
 
@@ -98,7 +106,7 @@ func truncate(s string, maxLen int) string {
 }
 
 // FormatExecutionResult formats the execution result as user-friendly output.
-func FormatExecutionResult(result *ExecutionResult) string {
+func FormatExecutionResult(result *ExecutionResult, plan *SubmissionPlan) string {
 	var sb strings.Builder
 
 	sb.WriteString("Execution Complete\n")
@@ -140,16 +148,47 @@ func FormatExecutionResult(result *ExecutionResult) string {
 		sb.WriteString(fmt.Sprintf("  • Skipped: %d\n", result.Summary.Skipped))
 	}
 
-	// PR URLs
-	urls := GetCreatedPRURLs(result)
-	if len(urls) > 0 {
-		sb.WriteString("\nCreated PRs:\n")
-		for _, url := range urls {
-			sb.WriteString(fmt.Sprintf("  • %s\n", url))
+	// PR URLs - show all PRs (both created and existing)
+	allPRs := GetAllPRURLs(result, plan)
+	if len(allPRs) > 0 {
+		sb.WriteString("\nPull Requests:\n")
+		for _, pr := range allPRs {
+			sb.WriteString(fmt.Sprintf("  • %s\n", pr))
 		}
 	}
 
 	return sb.String()
+}
+
+// GetAllPRURLs returns all PR URLs - both created during execution and existing.
+func GetAllPRURLs(result *ExecutionResult, plan *SubmissionPlan) []string {
+	// Use a map to deduplicate (in case a PR was both existing and updated)
+	urlSet := make(map[string]bool)
+	var urls []string
+
+	// Add existing PRs from plan
+	if plan != nil {
+		for _, pr := range plan.ExistingPRs {
+			if pr.URL != "" && !urlSet[pr.URL] {
+				urlSet[pr.URL] = true
+				urls = append(urls, pr.URL)
+			}
+		}
+	}
+
+	// Add newly created PRs from execution
+	if result != nil {
+		for _, ar := range result.Executed {
+			if ar.Action.Type() == ActionCreatePR && ar.Success {
+				if url, ok := ar.Details["pr_url"].(string); ok && !urlSet[url] {
+					urlSet[url] = true
+					urls = append(urls, url)
+				}
+			}
+		}
+	}
+
+	return urls
 }
 
 // FormatAnalysisErrors formats analysis errors for display.

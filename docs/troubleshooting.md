@@ -135,7 +135,7 @@ Rebase to create linear history:
 jj log
 
 # Rebase your changes linearly
-jj rebase -d main
+jj rebase -d main@origin
 ```
 
 ## Repository Issues

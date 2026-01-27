@@ -18,8 +18,8 @@ var (
 	// SSH format: git@host:owner/repo.git
 	sshPattern = regexp.MustCompile(`^git@([^:]+):([^/]+)/(.+?)(?:\.git)?$`)
 
-	// SSH URL format: ssh://git@host/owner/repo.git
-	sshURLPattern = regexp.MustCompile(`^ssh://git@([^/]+)/([^/]+)/(.+?)(?:\.git)?$`)
+	// SSH URL format: ssh://git@host/owner/repo.git or ssh://git@host:port/owner/repo.git
+	sshURLPattern = regexp.MustCompile(`^ssh://git@([^/:]+)(?::\d+)?/([^/]+)/(.+?)(?:\.git)?$`)
 
 	// HTTPS format: https://host/owner/repo.git
 	httpsPattern = regexp.MustCompile(`^https?://([^/]+)/([^/]+)/(.+?)(?:\.git)?$`)
@@ -35,16 +35,16 @@ func ParseGitHubRemote(url string) (*RemoteInfo, error) {
 		return &RemoteInfo{
 			Host:  normalizeHost(matches[1]),
 			Owner: matches[2],
-			Repo:  matches[3],
+			Repo:  stripGitSuffix(matches[3]),
 		}, nil
 	}
 
-	// Try SSH URL format: ssh://git@host/owner/repo.git
+	// Try SSH URL format: ssh://git@host/owner/repo.git or ssh://git@host:port/owner/repo.git
 	if matches := sshURLPattern.FindStringSubmatch(url); matches != nil {
 		return &RemoteInfo{
 			Host:  normalizeHost(matches[1]),
 			Owner: matches[2],
-			Repo:  matches[3],
+			Repo:  stripGitSuffix(matches[3]),
 		}, nil
 	}
 
@@ -58,11 +58,16 @@ func ParseGitHubRemote(url string) (*RemoteInfo, error) {
 		return &RemoteInfo{
 			Host:  normalizeHost(host),
 			Owner: matches[2],
-			Repo:  matches[3],
+			Repo:  stripGitSuffix(matches[3]),
 		}, nil
 	}
 
 	return nil, fmt.Errorf("could not parse GitHub remote URL: %s", url)
+}
+
+// stripGitSuffix removes .git suffix if present.
+func stripGitSuffix(s string) string {
+	return strings.TrimSuffix(s, ".git")
 }
 
 // normalizeHost normalizes the hostname (lowercase, strip port).

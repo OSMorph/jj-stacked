@@ -174,6 +174,13 @@ func runSubmit(ctx context.Context, bookmark string, opts *Options) error {
 	// Phase 4: Execution
 	if len(plan.Actions) == 0 {
 		fmt.Printf("\nNo actions required - everything is up to date.\n")
+		// Still show existing PR links
+		if len(plan.ExistingPRs) > 0 {
+			fmt.Printf("\nPull Requests:\n")
+			for _, pr := range plan.ExistingPRs {
+				fmt.Printf("  • %s\n", pr.URL)
+			}
+		}
 		return nil
 	}
 
@@ -215,7 +222,7 @@ func runSubmit(ctx context.Context, bookmark string, opts *Options) error {
 
 	// Show results summary
 	fmt.Printf("\n")
-	fmt.Print(submit.FormatExecutionResult(result))
+	fmt.Print(submit.FormatExecutionResult(result, plan))
 
 	// Return error if there were failures
 	if result.Summary.Failed > 0 {

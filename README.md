@@ -196,12 +196,14 @@ jj git fetch
 # 2. Abandon the merged bookmark's change (it's now in main)
 jj abandon user-model
 
-# 3. Rebase remaining stack onto updated main
-jj rebase -d main
+# 3. Rebase remaining stack onto updated main@origin
+jj rebase -d main@origin
 
 # 4. Re-submit to update remaining PRs
 jj-stacked submit user-api
 ```
+
+> **Note:** Use `main@origin` (not just `main`) to rebase onto the remote trunk. After fetch, your local `main` bookmark may not automatically track the remote, which can cause "immutable commits" errors.
 
 This updates the remaining PRs so they now target main (or the next bookmark in the stack) instead of the merged branch.
 
@@ -238,7 +240,9 @@ Submit a bookmark stack as pull requests.
 
 ### `jjk sync`
 
-Sync local stack after PRs are merged on GitHub.
+Sync local stack after PRs are merged on GitHub. This command automates the post-merge cleanup by abandoning merged bookmarks and rebasing remaining work.
+
+> **Note:** `sync` only processes PRs that were merged from the **bottom** of the stack upward. If you merge a PR out of order (e.g., the top of the stack first), `sync` will not detect it. Always merge PRs from bottom to top.
 
 | Flag | Description |
 |------|-------------|

@@ -91,8 +91,8 @@ When the bottom PR merges:
 # Fetch the merged changes
 jj git fetch
 
-# Rebase your stack onto main
-jj rebase -d main
+# Rebase your stack onto main@origin
+jj rebase -d main@origin
 
 # Re-submit to update remaining PRs
 jj-stacked submit user-tests
@@ -362,11 +362,13 @@ Or if you know the bookmark name:
 jj abandon <merged-bookmark-name>
 ```
 
-#### Step 3: Rebase remaining changes onto main
+#### Step 3: Rebase remaining changes onto main@origin
 
 ```bash
-jj rebase -d main
+jj rebase -d main@origin
 ```
+
+> **Note:** Use `main@origin` (not just `main`) to ensure you rebase onto the updated remote trunk. After fetch, your local `main` bookmark may not automatically update, which can cause "immutable commits" errors.
 
 This moves your remaining stack to be based on the updated main branch.
 
@@ -401,8 +403,8 @@ jj git fetch
 # 2. Abandon the merged change
 jj abandon user-model
 
-# 3. Rebase onto updated main
-jj rebase -d main
+# 3. Rebase onto updated main@origin
+jj rebase -d main@origin
 
 # 4. Re-submit remaining stack
 jj-stacked submit user-tests
@@ -428,7 +430,7 @@ jj abandon user-model
 jj abandon user-api
 
 # Rebase what remains
-jj rebase -d main
+jj rebase -d main@origin
 
 # Re-submit
 jj-stacked submit user-tests
@@ -440,7 +442,7 @@ jj-stacked submit user-tests
 
 **Don't delete remote branches manually** - Let jj-stacked manage them. If you delete a branch that other PRs depend on, those PRs break.
 
-**Don't forget to rebase** - If you skip `jj rebase -d main`, your local changes still have the old parent and subsequent submits will be confused.
+**Don't forget to rebase** - If you skip `jj rebase -d main@origin`, your local changes still have the old parent and subsequent submits will be confused.
 
 ## Best Practices
 
@@ -492,7 +494,7 @@ When a PR in your stack merges:
 
 ```bash
 jj git fetch
-jj rebase -d main
+jj rebase -d main@origin
 jj-stacked submit top-of-stack
 ```
 
