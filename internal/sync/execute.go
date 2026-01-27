@@ -56,6 +56,21 @@ func ExecuteSync(
 		return result
 	}
 
+	// After fetch, some bookmarks may have been deleted (if their remote branch was deleted)
+	// Re-check which bookmarks still exist
+	existingBookmarks := getExistingBookmarks(ctx, jj)
+
+	// Filter ToRebase to only include bookmarks that still exist
+	var filteredToRebase []string
+	for _, bm := range plan.ToRebase {
+		if existingBookmarks[bm] {
+			filteredToRebase = append(filteredToRebase, bm)
+		} else {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("bookmark %s was deleted during fetch (remote branch likely deleted after PR merge)", bm))
+		}
+	}
+
 	// Step 2: Abandon merged bookmarks (best effort - may fail if bookmark was deleted)
 	for _, bookmark := range plan.ToAbandon {
 		if callbacks != nil && callbacks.OnAbandon != nil {
@@ -79,13 +94,14 @@ func ExecuteSync(
 	}
 
 	// Step 3: Rebase remaining bookmarks onto trunk@origin
-	if plan.NeedsRebase && len(plan.ToRebase) > 0 {
+	if plan.NeedsRebase && len(filteredToRebase) > 0 {
 		if callbacks != nil && callbacks.OnRebaseStart != nil {
-			callbacks.OnRebaseStart(plan.ToRebase)
+			callbacks.OnRebaseStart(filteredToRebase)
 		}
 
 		// Find the root(s) of the remaining stack(s) and rebase them onto trunk@origin
-		roots := findStackRoots(plan)
+		// Use filtered list since some bookmarks may have been deleted by fetch
+		roots := findStackRootsFromList(filteredToRebase, existingBookmarks)
 
 		var rebaseErr error
 		for _, root := range roots {
@@ -104,7 +120,7 @@ func ExecuteSync(
 		}
 
 		if rebaseErr == nil {
-			result.Rebased = plan.ToRebase
+			result.Rebased = filteredToRebase
 		}
 
 		// Check for conflicts after rebase
@@ -169,28 +185,39 @@ func buildPushList(originalToPush, rebased []string) []string {
 	return result
 }
 
-// findStackRoots finds the root bookmarks of remaining stacks that need rebasing.
-// These are bookmarks whose parent was abandoned (merged).
-func findStackRoots(plan *SyncPlan) []string {
-	if plan.Analysis == nil {
-		// Fallback: just return all bookmarks to rebase
-		return plan.ToRebase
+// findStackRootsFromList finds the root bookmarks from a filtered list.
+// This is used after fetch when some bookmarks may have been deleted.
+func findStackRootsFromList(bookmarks []string, existingBookmarks map[string]bool) []string {
+	// Filter to only existing bookmarks
+	var existing []string
+	for _, bm := range bookmarks {
+		if existingBookmarks[bm] {
+			existing = append(existing, bm)
+		}
 	}
 
-	// Build set of abandoned bookmark names
-	abandonedSet := make(map[string]bool)
-	for _, name := range plan.ToAbandon {
-		abandonedSet[name] = true
-	}
-
-	// For now, return the first remaining bookmark as root
-	// In a more sophisticated implementation, we would analyze the graph
-	// to find the actual root(s)
-	if len(plan.ToRebase) > 0 {
-		return []string{plan.ToRebase[0]}
+	// Return the first existing bookmark as the root
+	// (it should be the bottom of the remaining stack)
+	if len(existing) > 0 {
+		return []string{existing[0]}
 	}
 
 	return nil
+}
+
+// getExistingBookmarks returns a set of bookmark names that currently exist.
+func getExistingBookmarks(ctx context.Context, jj jjutils.JJFunctions) map[string]bool {
+	bookmarks, err := jj.ListUserBookmarks(ctx)
+	if err != nil {
+		// On error, return empty map (will cause all bookmarks to be filtered out)
+		return make(map[string]bool)
+	}
+
+	existing := make(map[string]bool)
+	for _, bm := range bookmarks {
+		existing[bm.Name] = true
+	}
+	return existing
 }
 
 // FormatResult returns a human-readable summary of the sync result.
