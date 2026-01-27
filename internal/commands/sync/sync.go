@@ -18,6 +18,7 @@ import (
 
 // Options configures the sync command.
 type Options struct {
+	Bookmark   string // Optional: only sync this bookmark's stack
 	DryRun     bool
 	Continue   bool
 	Abort      bool
@@ -31,7 +32,7 @@ func NewCommand() *cobra.Command {
 	opts := &Options{}
 
 	cmd := &cobra.Command{
-		Use:   "sync",
+		Use:   "sync [bookmark]",
 		Short: "Sync local stack with remote (push changes, clean up merged PRs)",
 		Long: `Synchronize your local stack with the remote repository.
 
@@ -42,12 +43,18 @@ This command handles bidirectional synchronization:
 4. Abandons the corresponding local changes
 5. Rebases remaining bookmarks onto the updated trunk
 
+If a bookmark is specified, only that bookmark's stack will be synced.
+Otherwise, all stacks are synced.
+
 EXAMPLES:
   # Preview what would be synced (recommended first)
   jj-stacked sync --dry-run
 
   # Sync local changes to remote and clean up merged PRs
   jj-stacked sync
+
+  # Sync only a specific bookmark's stack
+  jj-stacked sync my-feature
 
   # Continue sync after resolving conflicts
   jj-stacked sync --continue
@@ -62,7 +69,11 @@ WORKFLOW:
   Run this command to push local changes to GitHub and clean up
   after merging PRs. It will push any bookmarks ahead of origin,
   remove merged bookmarks, and rebase remaining work onto trunk.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				opts.Bookmark = args[0]
+			}
 			return runSync(cmd.Context(), opts)
 		},
 	}
@@ -120,8 +131,15 @@ func runSync(ctx context.Context, opts *Options) error {
 	}
 
 	// Phase 1: Analysis
-	fmt.Printf("Analyzing sync state...\n")
-	analysis, err := sync.AnalyzeSync(ctx, jj, repoCtx.GitHub, repoCtx.Owner, repoCtx.Repo)
+	if opts.Bookmark != "" {
+		fmt.Printf("Analyzing sync state for stack: %s...\n", opts.Bookmark)
+	} else {
+		fmt.Printf("Analyzing sync state...\n")
+	}
+	analysisOpts := sync.AnalyzeOptions{
+		Bookmark: opts.Bookmark,
+	}
+	analysis, err := sync.AnalyzeSyncWithOptions(ctx, jj, repoCtx.GitHub, repoCtx.Owner, repoCtx.Repo, analysisOpts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\nError: %s\n", apperrors.FormatErrorWithHint(err))
 		return fmt.Errorf("analysis failed")

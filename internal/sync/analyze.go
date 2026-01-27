@@ -33,6 +33,18 @@ func AnalyzeSync(
 	gh github.GitHubClient,
 	owner, repo string,
 ) (*SyncAnalysis, error) {
+	return AnalyzeSyncWithOptions(ctx, jj, gh, owner, repo, AnalyzeOptions{})
+}
+
+// AnalyzeSyncWithOptions determines what needs to be synced with configurable options.
+// If opts.Bookmark is specified, only that bookmark's stack will be analyzed.
+func AnalyzeSyncWithOptions(
+	ctx context.Context,
+	jj jjutils.JJFunctions,
+	gh github.GitHubClient,
+	owner, repo string,
+	opts AnalyzeOptions,
+) (*SyncAnalysis, error) {
 	analysis := &SyncAnalysis{}
 
 	// Step 1: Get trunk info
@@ -44,14 +56,48 @@ func AnalyzeSync(
 	analysis.TrunkChangeID = trunkInfo.ChangeID
 
 	// Step 2: Get user bookmarks
-	bookmarks, err := jj.ListUserBookmarks(ctx)
+	allBookmarks, err := jj.ListUserBookmarks(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list user bookmarks: %w", err)
 	}
 
-	if len(bookmarks) == 0 {
+	if len(allBookmarks) == 0 {
 		// Nothing to sync
 		return analysis, nil
+	}
+
+	// Step 3: Build the change graph to understand stack structure
+	graph, err := jj.BuildChangeGraph(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build change graph: %w", err)
+	}
+
+	// Step 3.5: Filter bookmarks if a specific bookmark was requested
+	var bookmarks []jjutils.Bookmark
+	if opts.Bookmark != "" {
+		stack := graph.GetStackUpTo(opts.Bookmark)
+		if stack == nil {
+			return nil, fmt.Errorf("bookmark %q not found in any stack", opts.Bookmark)
+		}
+
+		// Build a set of bookmark names in this stack
+		stackBookmarks := make(map[string]bool)
+		for _, seg := range stack.Segments {
+			stackBookmarks[seg.Bookmark.Name] = true
+		}
+
+		// Filter to only bookmarks in this stack
+		for _, bm := range allBookmarks {
+			if stackBookmarks[bm.Name] {
+				bookmarks = append(bookmarks, bm)
+			}
+		}
+
+		if len(bookmarks) == 0 {
+			return analysis, nil
+		}
+	} else {
+		bookmarks = allBookmarks
 	}
 
 	// Check which bookmarks need to be pushed (ahead of origin)
@@ -59,12 +105,6 @@ func AnalyzeSync(
 		if bm.NeedsPush() {
 			analysis.BookmarksNeedingPush = append(analysis.BookmarksNeedingPush, bm.Name)
 		}
-	}
-
-	// Step 3: Build the change graph to understand stack structure
-	graph, err := jj.BuildChangeGraph(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build change graph: %w", err)
 	}
 
 	// Step 4: Detect which bookmarks have merged PRs

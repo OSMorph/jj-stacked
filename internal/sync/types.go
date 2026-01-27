@@ -9,6 +9,13 @@ import (
 // 2. Planning - determine what actions to take
 // 3. Execution - perform the sync operations
 
+// AnalyzeOptions configures the sync analysis.
+type AnalyzeOptions struct {
+	// Bookmark limits sync to only this bookmark's stack.
+	// If empty, all stacks are analyzed.
+	Bookmark string
+}
+
 // SyncAnalysis is the result of analyzing what needs to be synced.
 // It captures the current state and identifies merged bookmarks.
 type SyncAnalysis struct {
