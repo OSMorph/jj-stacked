@@ -671,6 +671,13 @@ func (m *mockGitHubClient) GetDefaultBranch(ctx context.Context, owner, repo str
 	return "main", nil
 }
 
+func (m *mockGitHubClient) GetAuthenticatedUser(ctx context.Context) (string, error) {
+	if m.returnError != nil {
+		return "", m.returnError
+	}
+	return "testuser", nil
+}
+
 func (m *mockGitHubClient) Host() string {
 	return "github.com"
 }

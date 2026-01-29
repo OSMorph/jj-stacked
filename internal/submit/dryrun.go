@@ -51,9 +51,13 @@ func FormatDryRunOutput(analysis *AnalysisResult, plan *SubmissionPlan) string {
 	if plan.Summary.CommentsToSync > 0 {
 		sb.WriteString(fmt.Sprintf("  • %d comment(s) to sync\n", plan.Summary.CommentsToSync))
 	}
+	if plan.Summary.PRsToClose > 0 {
+		sb.WriteString(fmt.Sprintf("  • %d orphaned PR(s) to close\n", plan.Summary.PRsToClose))
+	}
 
 	if plan.Summary.BookmarksToPush == 0 && plan.Summary.PRsToCreate == 0 &&
-		plan.Summary.PRsToUpdate == 0 && plan.Summary.CommentsToSync == 0 {
+		plan.Summary.PRsToUpdate == 0 && plan.Summary.CommentsToSync == 0 &&
+		plan.Summary.PRsToClose == 0 {
 		sb.WriteString("  • Nothing to do\n")
 	}
 
@@ -91,6 +95,10 @@ func formatAction(action SubmissionAction) string {
 	case *SyncCommentAction:
 		return fmt.Sprintf("[SYNC COMMENT] Update stack comment on PR #%d ('%s')",
 			a.PRNumber, a.Bookmark)
+
+	case *ClosePRAction:
+		return fmt.Sprintf("[CLOSE PR] Close orphaned PR #%d (branch '%s' no longer exists)",
+			a.PRNumber, a.Branch)
 
 	default:
 		return action.Description()

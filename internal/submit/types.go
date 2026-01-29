@@ -77,6 +77,7 @@ const (
 	ActionCreatePR    ActionType = "create_pr"
 	ActionUpdateBase  ActionType = "update_base"
 	ActionSyncComment ActionType = "sync_comment"
+	ActionClosePR     ActionType = "close_pr"
 )
 
 // SubmissionAction is the interface for actions that can be executed.
@@ -105,6 +106,7 @@ type PlanSummary struct {
 	BookmarksToPush int
 	PRsToCreate     int
 	PRsToUpdate     int
+	PRsToClose      int
 	CommentsToSync  int
 }
 
@@ -146,6 +148,7 @@ type PlanningDeps struct {
 	Repo          string
 	Remote        string
 	DefaultBranch string
+	CurrentUser   string // GitHub username of the current user (for filtering orphaned PRs)
 }
 
 // PlanningCallbacks provides optional callbacks for planning progress.

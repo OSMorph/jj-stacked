@@ -129,12 +129,24 @@ func runSubmit(ctx context.Context, bookmark string, opts *Options) error {
 
 	// Phase 3: Planning
 	fmt.Printf("Creating submission plan...\n")
+
+	// Get the current authenticated user for orphan PR detection
+	currentUser, err := repoCtx.GitHub.GetAuthenticatedUser(ctx)
+	if err != nil {
+		// Non-fatal: orphan detection will just skip author filtering
+		if opts.Debug {
+			log.Debug("could not get authenticated user", "error", err)
+		}
+		currentUser = ""
+	}
+
 	planningDeps := &submit.PlanningDeps{
 		GitHub:        repoCtx.GitHub,
 		Owner:         repoCtx.Owner,
 		Repo:          repoCtx.Repo,
 		Remote:        repoCtx.Remote,
 		DefaultBranch: repoCtx.DefaultBranch,
+		CurrentUser:   currentUser,
 	}
 
 	planCallbacks := &submit.PlanningCallbacks{
@@ -205,6 +217,12 @@ func runSubmit(ctx context.Context, bookmark string, opts *Options) error {
 			} else if action.Type() == submit.ActionCreatePR {
 				if url, ok := result.Details["pr_url"].(string); ok {
 					fmt.Printf("    ✓ Created: %s\n", url)
+				}
+			} else if action.Type() == submit.ActionClosePR {
+				if prNum, ok := result.Details["pr_number"].(int); ok {
+					fmt.Printf("    ✓ Closed PR #%d\n", prNum)
+				} else {
+					fmt.Printf("    ✓ Closed\n")
 				}
 			} else {
 				fmt.Printf("    ✓ Done\n")

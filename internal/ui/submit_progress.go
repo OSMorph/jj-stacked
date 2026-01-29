@@ -146,6 +146,12 @@ func (m SubmitProgressModel) View() string {
 						sb.WriteString(fmt.Sprintf("    %s %s\n", CurrentIndicator, MutedStyle.Render(url)))
 					}
 				}
+				// Show reason for closed PRs
+				if action.Type() == submit.ActionClosePR {
+					if reason, ok := m.results[i].Details["reason"].(string); ok {
+						sb.WriteString(fmt.Sprintf("    %s %s\n", CurrentIndicator, MutedStyle.Render(reason)))
+					}
+				}
 			} else if m.results[i].Error != nil {
 				// Show error
 				sb.WriteString(fmt.Sprintf("    %s\n", ErrorStyle.Render(m.results[i].Error.Error())))

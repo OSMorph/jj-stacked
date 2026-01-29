@@ -33,6 +33,9 @@ type GitHubClient interface {
 	// Repository info
 	GetDefaultBranch(ctx context.Context, owner, repo string) (string, error)
 
+	// User info
+	GetAuthenticatedUser(ctx context.Context) (string, error)
+
 	// Host info
 	Host() string
 }
@@ -46,6 +49,7 @@ type PullRequest struct {
 	URL       string
 	Base      string
 	Head      string
+	Author    string // GitHub username of PR author
 	Merged    bool
 	Mergeable *bool
 	MergedAt  *time.Time
@@ -337,6 +341,15 @@ func (c *client) GetDefaultBranch(ctx context.Context, owner, repo string) (stri
 	return repository.GetDefaultBranch(), nil
 }
 
+func (c *client) GetAuthenticatedUser(ctx context.Context) (string, error) {
+	user, resp, err := c.gh.Users.Get(ctx, "")
+	if err != nil {
+		return "", c.wrapError("get_authenticated_user", resp, err)
+	}
+
+	return user.GetLogin(), nil
+}
+
 // wrapError wraps a GitHub API error with context.
 func (c *client) wrapError(operation string, resp *github.Response, err error) error {
 	statusCode := 0
@@ -375,6 +388,10 @@ func convertPR(pr *github.PullRequest) *PullRequest {
 		Head:      pr.GetHead().GetRef(),
 		Merged:    pr.GetMerged(),
 		Mergeable: pr.Mergeable,
+	}
+
+	if pr.User != nil {
+		result.Author = pr.User.GetLogin()
 	}
 
 	if pr.MergedAt != nil {

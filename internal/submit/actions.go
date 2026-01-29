@@ -198,10 +198,51 @@ func (a *SyncCommentAction) Execute(ctx context.Context, deps *ActionDeps) (*Act
 	return result, nil
 }
 
+// ClosePRAction closes an orphaned PR (PR whose branch no longer exists locally).
+type ClosePRAction struct {
+	PRNumber int
+	Branch   string // The branch name that no longer exists
+	Reason   string // Why the PR is being closed
+}
+
+func (a *ClosePRAction) Type() ActionType {
+	return ActionClosePR
+}
+
+func (a *ClosePRAction) Description() string {
+	return fmt.Sprintf("Close orphaned PR #%d (branch '%s' no longer exists)", a.PRNumber, a.Branch)
+}
+
+func (a *ClosePRAction) Execute(ctx context.Context, deps *ActionDeps) (*ActionResult, error) {
+	result := &ActionResult{
+		Action:  a,
+		Details: make(map[string]interface{}),
+	}
+
+	closedState := "closed"
+	req := &github.UpdatePRRequest{
+		State: &closedState,
+	}
+
+	_, err := deps.GitHub.UpdatePullRequest(ctx, deps.Owner, deps.Repo, a.PRNumber, req)
+	if err != nil {
+		result.Success = false
+		result.Error = fmt.Errorf("failed to close PR #%d: %w", a.PRNumber, err)
+		return result, result.Error
+	}
+
+	result.Success = true
+	result.Details["pr_number"] = a.PRNumber
+	result.Details["branch"] = a.Branch
+	result.Details["reason"] = a.Reason
+	return result, nil
+}
+
 // Ensure all action types implement SubmissionAction
 var (
 	_ SubmissionAction = (*PushAction)(nil)
 	_ SubmissionAction = (*CreatePRAction)(nil)
 	_ SubmissionAction = (*UpdateBaseAction)(nil)
 	_ SubmissionAction = (*SyncCommentAction)(nil)
+	_ SubmissionAction = (*ClosePRAction)(nil)
 )

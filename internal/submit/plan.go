@@ -115,7 +115,20 @@ func CreateSubmissionPlan(
 		}
 	}
 
-	// Phase 4: Create sync comment actions for all PRs
+	// Phase 4: Detect orphaned PRs (PRs whose branch no longer exists locally)
+	// This handles the case where a bookmark was renamed - the old PR should be closed
+	progress("Checking for orphaned PRs...")
+	orphanedPRs := findOrphanedPRs(ctx, deps, analysis, prInfo)
+	for _, orphan := range orphanedPRs {
+		plan.Actions = append(plan.Actions, &ClosePRAction{
+			PRNumber: orphan.Number,
+			Branch:   orphan.Head,
+			Reason:   "Branch no longer exists locally (bookmark may have been renamed)",
+		})
+		plan.Summary.PRsToClose++
+	}
+
+	// Phase 5: Create sync comment actions for all PRs
 	// We need to wait until we know which PRs will exist
 	progress("Planning stack comment sync...")
 
@@ -187,4 +200,79 @@ func GetActionsOfType(plan *SubmissionPlan, actionType ActionType) []SubmissionA
 		}
 	}
 	return result
+}
+
+// findOrphanedPRs finds open PRs that are likely orphaned because their branch
+// no longer exists locally. This typically happens when a bookmark is renamed.
+func findOrphanedPRs(
+	ctx context.Context,
+	deps *PlanningDeps,
+	analysis *AnalysisResult,
+	existingPRs map[string]*github.PullRequest,
+) []*github.PullRequest {
+	var orphaned []*github.PullRequest
+
+	// Build a set of local bookmark names in this stack
+	localBookmarks := make(map[string]bool)
+	for _, sb := range analysis.Stack {
+		localBookmarks[sb.Bookmark.Name] = true
+	}
+
+	// Build a set of base branches used in this stack
+	baseBranches := make(map[string]bool)
+	baseBranches[deps.DefaultBranch] = true
+	for _, sb := range analysis.Stack {
+		baseBranches[sb.Bookmark.Name] = true
+	}
+
+	// Get all open PRs
+	allOpenPRs, err := deps.GitHub.ListOpenPullRequests(ctx, deps.Owner, deps.Repo)
+	if err != nil {
+		// On error, just skip orphan detection
+		return nil
+	}
+
+	// Find PRs that:
+	// 1. Were created by the current user (to avoid closing teammates' PRs)
+	// 2. Have a head branch that doesn't exist in our local bookmarks
+	// 3. Have a base branch that IS one of our bookmarks (suggesting it was part of this stack)
+	// 4. Have a jj-stacked stack comment
+	for _, pr := range allOpenPRs {
+		// Skip if the PR wasn't created by the current user
+		// This prevents accidentally closing PRs from teammates
+		if deps.CurrentUser != "" && pr.Author != deps.CurrentUser {
+			continue
+		}
+
+		// Skip if the PR's branch exists locally
+		if localBookmarks[pr.Head] {
+			continue
+		}
+
+		// Skip if we already have a PR for this branch (it's not orphaned)
+		if _, exists := existingPRs[pr.Head]; exists {
+			continue
+		}
+
+		// Check if the PR's base is one of our bookmarks (suggesting it was part of this stack)
+		if baseBranches[pr.Base] {
+			// This PR has a base that's in our stack but its head branch doesn't exist
+			// Check if it has a jj-stacked stack comment to confirm it was managed by us
+			comments, err := deps.GitHub.ListComments(ctx, deps.Owner, deps.Repo, pr.Number)
+			if err != nil {
+				continue
+			}
+
+			for _, comment := range comments {
+				if github.IsStackComment(comment.Body) {
+					// This PR has a jj-stacked comment and its branch doesn't exist
+					// It's likely orphaned (bookmark was renamed)
+					orphaned = append(orphaned, pr)
+					break
+				}
+			}
+		}
+	}
+
+	return orphaned
 }
