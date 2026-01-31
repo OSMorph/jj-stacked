@@ -91,10 +91,10 @@ func (a *CreatePRAction) Execute(ctx context.Context, deps *ActionDeps) (*Action
 
 // UpdateBaseAction updates the base branch of an existing PR.
 type UpdateBaseAction struct {
-	Bookmark  string
-	PRNumber  int
-	NewBase   string
-	OldBase   string
+	Bookmark string
+	PRNumber int
+	NewBase  string
+	OldBase  string
 }
 
 func (a *UpdateBaseAction) Type() ActionType {
