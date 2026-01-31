@@ -292,18 +292,23 @@ Show detailed authentication setup instructions.
 When you submit a stack, jj-stacked adds a navigation comment to each PR:
 
 ```
-## Stack
+This PR is part of a stack of 2 bookmark(s):
 
-| PR | Status |
-|---|---|
-| #103 `user-api` | <- this PR |
-| #102 `user-model` | |
+1. `main` (base)
+2. [user-model](https://github.com/owner/repo/pull/102)
+3. **[user-api](https://github.com/owner/repo/pull/103) ← this PR**
+
+### Merged
+
+- ~~[user-setup](https://github.com/owner/repo/pull/101)~~ → merged into `main`
 
 ---
-*Managed by [jj-stacked](https://github.com/OSMorph/jj-stacked)*
+*Created with jj-stacked*
 ```
 
 These comments are automatically updated when you re-submit the stack.
+When PRs from the stack are merged and their bookmarks removed locally,
+they appear in the "Merged" section to preserve the stack's history.
 
 ## Troubleshooting
 

@@ -54,7 +54,7 @@ func AnalyzeSubmission(
 		}
 
 		// Extract title and body from the segment's changes
-		sb.Title, sb.Body = extractPRContent(segment)
+		sb.Title, sb.Body = extractPRContent(&segment)
 
 		// Add warnings for potential issues
 		if sb.Title == "" {
@@ -83,7 +83,7 @@ func AnalyzeSubmission(
 // extractPRContent extracts the PR title and body from a bookmark segment.
 // The title comes from the first line of the latest commit description.
 // The body comes from the full description (excluding first line).
-func extractPRContent(segment jjutils.BookmarkSegment) (title, body string) {
+func extractPRContent(segment *jjutils.BookmarkSegment) (title, body string) {
 	// Use the latest change in the segment (last in array since oldest is first)
 	if len(segment.Changes) == 0 {
 		return "", ""

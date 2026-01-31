@@ -152,7 +152,7 @@ func ValidateAnalysis(analysis *SyncAnalysis) []error {
 	// Check for out-of-order merges (these are in warnings)
 	for _, warning := range analysis.Warnings {
 		// Out-of-order merges are blocking errors
-		if len(warning) > 0 && warning[0] == 'b' { // "bookmark X was merged out of order"
+		if warning != "" && warning[0] == 'b' { // "bookmark X was merged out of order"
 			errors = append(errors, fmt.Errorf("%s", warning))
 		}
 	}

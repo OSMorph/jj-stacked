@@ -203,8 +203,8 @@ func (j *jjFunctions) getRemoteBookmarks(ctx context.Context) (map[string]remote
 	}
 
 	result := make(map[string]remoteBookmarkInfo)
-	for _, entry := range entries {
-		for _, rb := range entry.RemoteBookmarks {
+	for i := range entries {
+		for _, rb := range entries[i].RemoteBookmarks {
 			// remote bookmarks are in the form name@remote
 			parts := strings.SplitN(rb, "@", 2)
 			if len(parts) != 2 {
@@ -214,8 +214,8 @@ func (j *jjFunctions) getRemoteBookmarks(ctx context.Context) (map[string]remote
 			remote := cleanBookmarkMarkers(parts[1])
 			// Store the latest (heads) entry for each remote bookmark
 			result[name] = remoteBookmarkInfo{
-				CommitID: entry.CommitID,
-				ChangeID: entry.ChangeID,
+				CommitID: entries[i].CommitID,
+				ChangeID: entries[i].ChangeID,
 				Remote:   remote,
 			}
 		}

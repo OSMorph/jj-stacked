@@ -116,20 +116,20 @@ func (m SubmitProgressModel) View() string {
 		var icon string
 		var style lipgloss.Style
 
-		if i < len(m.results) && m.results[i].Action != nil {
-			// Action has a result
-			if m.results[i].Success {
-				icon = SuccessIndicator
-				style = SuccessStyle
-			} else {
-				icon = ErrorIndicator
-				style = ErrorStyle
-			}
-		} else if i == m.current {
+		switch {
+		case i < len(m.results) && m.results[i].Action != nil && m.results[i].Success:
+			// Action succeeded
+			icon = SuccessIndicator
+			style = SuccessStyle
+		case i < len(m.results) && m.results[i].Action != nil:
+			// Action failed
+			icon = ErrorIndicator
+			style = ErrorStyle
+		case i == m.current:
 			// Currently executing
 			icon = m.spinner.View()
 			style = HighlightStyle
-		} else {
+		default:
 			// Pending
 			icon = PendingIndicator
 			style = MutedStyle

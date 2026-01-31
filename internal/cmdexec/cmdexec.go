@@ -64,12 +64,12 @@ func (r *RealExecutor) Run(ctx context.Context, name string, args ...string) (st
 }
 
 // RunWithStdin executes a command with stdin input.
-func (r *RealExecutor) RunWithStdin(ctx context.Context, stdin string, name string, args ...string) (string, error) {
+func (r *RealExecutor) RunWithStdin(ctx context.Context, stdin, name string, args ...string) (string, error) {
 	return r.run(ctx, r.WorkDir, stdin, name, args...)
 }
 
 // RunInDir executes a command in a specific directory.
-func (r *RealExecutor) RunInDir(ctx context.Context, dir string, name string, args ...string) (string, error) {
+func (r *RealExecutor) RunInDir(ctx context.Context, dir, name string, args ...string) (string, error) {
 	return r.run(ctx, dir, "", name, args...)
 }
 
@@ -141,16 +141,16 @@ func (m *MockExecutor) Run(ctx context.Context, name string, args ...string) (st
 }
 
 // RunWithStdin executes a mock command with stdin.
-func (m *MockExecutor) RunWithStdin(ctx context.Context, stdin string, name string, args ...string) (string, error) {
+func (m *MockExecutor) RunWithStdin(ctx context.Context, stdin, name string, args ...string) (string, error) {
 	return m.run(ctx, "", stdin, name, args...)
 }
 
 // RunInDir executes a mock command in a directory.
-func (m *MockExecutor) RunInDir(ctx context.Context, dir string, name string, args ...string) (string, error) {
+func (m *MockExecutor) RunInDir(ctx context.Context, dir, name string, args ...string) (string, error) {
 	return m.run(ctx, dir, "", name, args...)
 }
 
-func (m *MockExecutor) run(ctx context.Context, dir, stdin, name string, args ...string) (string, error) {
+func (m *MockExecutor) run(_ context.Context, dir, stdin, name string, args ...string) (string, error) {
 	m.Calls = append(m.Calls, MockCall{
 		Name:  name,
 		Args:  args,
@@ -186,7 +186,7 @@ func (m *MockExecutor) makeKey(name string, args ...string) string {
 }
 
 // SetResponse configures a response for a command.
-func (m *MockExecutor) SetResponse(response string, name string, args ...string) {
+func (m *MockExecutor) SetResponse(response, name string, args ...string) {
 	key := m.makeKey(name, args...)
 	m.Responses[key] = response
 }

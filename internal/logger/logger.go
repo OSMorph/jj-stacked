@@ -45,7 +45,7 @@ func New(opts Options) *Logger {
 		Level: levelVar,
 	}
 
-	if strings.ToLower(opts.Format) == "json" {
+	if strings.EqualFold(opts.Format, "json") {
 		handler = slog.NewJSONHandler(opts.Output, handlerOpts)
 	} else {
 		handler = slog.NewTextHandler(opts.Output, handlerOpts)

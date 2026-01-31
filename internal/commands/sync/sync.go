@@ -290,7 +290,7 @@ func handleAbort(ctx context.Context, jj jjutils.JJFunctions) error {
 	return nil
 }
 
-func handleContinue(ctx context.Context, jj jjutils.JJFunctions, opts *Options, log *logger.Logger) error {
+func handleContinue(ctx context.Context, jj jjutils.JJFunctions, _ *Options, log *logger.Logger) error {
 	state, err := sync.LoadSyncState(ctx, jj)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading sync state: %v\n", err)

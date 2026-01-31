@@ -179,7 +179,7 @@ func TestExtractPRContent(t *testing.T) {
 			segment := jjutils.BookmarkSegment{
 				Changes: tt.changes,
 			}
-			title, body := extractPRContent(segment)
+			title, body := extractPRContent(&segment)
 			if title != tt.expectedTitle {
 				t.Errorf("title = %q, want %q", title, tt.expectedTitle)
 			}
@@ -217,7 +217,8 @@ func TestGetStackSummary_Empty(t *testing.T) {
 
 // createTestGraph creates a test graph for testing.
 // Structure:
-//   feature-b → feature-a → main
+//
+//	feature-b → feature-a → main
 func createTestGraph() *jjutils.ChangeGraph {
 	graph := jjutils.NewChangeGraph()
 

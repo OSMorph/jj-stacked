@@ -223,4 +223,3 @@ func ValidateAuth(ctx context.Context, exec cmdexec.CommandExecutor, host string
 	_, err = authenticator.GetUser(ctx)
 	return err
 }
-

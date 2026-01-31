@@ -17,6 +17,7 @@ import (
 // GraphMode represents the current mode of the graph view.
 type GraphMode int
 
+// Graph view modes.
 const (
 	ModeNormal GraphMode = iota
 	ModeSelecting
@@ -33,12 +34,12 @@ type GraphModel struct {
 	stacks []jjutils.BranchStack
 
 	// UI state
-	cursor    int               // Currently selected item (flattened index)
-	expanded  map[string]bool   // Expanded bookmarks (show changes)
-	viewport  viewport.Model    // For scrolling
-	width     int               // Terminal width
-	height    int               // Terminal height
-	ready     bool              // Viewport initialized
+	cursor   int             // Currently selected item (flattened index)
+	expanded map[string]bool // Expanded bookmarks (show changes)
+	viewport viewport.Model  // For scrolling
+	width    int             // Terminal width
+	height   int             // Terminal height
+	ready    bool            // Viewport initialized
 
 	// Mode
 	mode             GraphMode
@@ -56,8 +57,8 @@ type GraphModel struct {
 // graphItem represents a navigable item in the graph.
 type graphItem struct {
 	bookmark    string
-	stack       int  // Stack index
-	segment     int  // Segment index within stack
+	stack       int // Stack index
+	segment     int // Segment index within stack
 	isExpanded  bool
 	isSynced    bool
 	changeCount int
@@ -311,9 +312,9 @@ func (m GraphModel) renderContent() string {
 
 			// Show changes if expanded
 			if m.expanded[seg.Bookmark.Name] && len(seg.Changes) > 0 {
-				for _, change := range seg.Changes {
+				for i := range seg.Changes {
 					changeIndent := strings.Repeat("  ", len(stack.Segments)-segIdx+1)
-					desc := change.DescriptionFirstLine
+					desc := seg.Changes[i].DescriptionFirstLine
 					if desc == "" {
 						desc = "(no description)"
 					}

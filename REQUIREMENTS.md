@@ -412,15 +412,23 @@ jj-stacked auth help
 **Comment Format Example**:
 ```markdown
 <!--- JJ-STACK_INFO: <base64-encoded-json> --->
-This PR is part of a stack of 3 bookmarks:
+This PR is part of a stack of 2 bookmark(s):
 
-1. `trunk()`
-1. [feature-base](https://github.com/owner/repo/pull/42)
-1. **feature-top ← this PR**
+1. `main` (base)
+2. [feature-base](https://github.com/owner/repo/pull/42)
+3. **[feature-top](https://github.com/owner/repo/pull/43) ← this PR**
+
+### Merged
+
+- ~~[feature-setup](https://github.com/owner/repo/pull/41)~~ → merged into `main`
 
 ---
 *Created with [jj-stacked](https://github.com/OSMorph/jj-stacked)*
 ```
+
+The "Merged" section appears when PRs from the stack have been merged and their
+bookmarks removed locally. This preserves the stack's history so reviewers can
+see the full context of the work.
 
 ---
 

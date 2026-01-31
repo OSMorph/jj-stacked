@@ -59,7 +59,7 @@ func setupTestRepo(t *testing.T) *testRepo {
 	}
 
 	cleanup := func() {
-		os.RemoveAll(dir)
+		_ = os.RemoveAll(dir)
 	}
 
 	// Initialize git repo
@@ -86,7 +86,7 @@ func setupTestRepo(t *testing.T) *testRepo {
 
 	// Create initial commit (git requires at least one commit for jj)
 	readmePath := filepath.Join(dir, "README.md")
-	if err := os.WriteFile(readmePath, []byte("# Test Repository\n"), 0644); err != nil {
+	if err := os.WriteFile(readmePath, []byte("# Test Repository\n"), 0o644); err != nil {
 		cleanup()
 		t.Fatalf("failed to write README: %v", err)
 	}
@@ -114,7 +114,7 @@ func setupTestRepo(t *testing.T) *testRepo {
 }
 
 // createChange creates a new jj change with the given description.
-func (r *testRepo) createChange(t *testing.T, description string) string {
+func (r *testRepo) createChange(t *testing.T, description string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -127,17 +127,9 @@ func (r *testRepo) createChange(t *testing.T, description string) string {
 	// Create a file to make the change non-empty
 	filename := strings.ReplaceAll(description, " ", "_") + ".txt"
 	filePath := filepath.Join(r.dir, filename)
-	if err := os.WriteFile(filePath, []byte(description+"\n"), 0644); err != nil {
+	if err := os.WriteFile(filePath, []byte(description+"\n"), 0o644); err != nil {
 		t.Fatalf("failed to write file: %v", err)
 	}
-
-	// Get the change ID
-	output, err := r.exec.Run(ctx, "jj", "log", "-r", "@", "--no-graph", "-T", `change_id.short()`)
-	if err != nil {
-		t.Fatalf("failed to get change ID: %v", err)
-	}
-
-	return strings.TrimSpace(output)
 }
 
 // createBookmark creates a bookmark at the current change.
@@ -150,7 +142,6 @@ func (r *testRepo) createBookmark(t *testing.T, name string) {
 		t.Fatalf("failed to create bookmark %s: %v", name, err)
 	}
 }
-
 
 // TestIntegration_SimpleStack tests building a graph with a simple stack of 3 bookmarks.
 func TestIntegration_SimpleStack(t *testing.T) {
@@ -436,6 +427,8 @@ func TestIntegration_SubmitDryRun(t *testing.T) {
 			pushCount++
 		case submit.ActionCreatePR:
 			createCount++
+		case submit.ActionUpdateBase, submit.ActionSyncComment, submit.ActionClosePR:
+			// Not counting these action types in this test
 		}
 	}
 

@@ -21,15 +21,27 @@ const (
 	MetadataSuffix = " --->"
 
 	// StackCommentVersion is the current version of the comment format.
-	StackCommentVersion = 1
+	// Version 2 adds MergedHistory for tracking merged PRs from the stack.
+	StackCommentVersion = 2
 )
 
 // StackCommentData is embedded in comments as base64-encoded JSON.
 type StackCommentData struct {
-	Version   int            `json:"version"`
-	Bookmarks []string       `json:"bookmarks"`
-	PRNumbers map[string]int `json:"pr_numbers"`
+	Version   int               `json:"version"`
+	Bookmarks []string          `json:"bookmarks"`
+	PRNumbers map[string]int    `json:"pr_numbers"`
 	PRURLs    map[string]string `json:"pr_urls"`
+	// MergedHistory tracks PRs that were merged from this stack.
+	// Added in version 2.
+	MergedHistory []MergedPRInfo `json:"merged_history,omitempty"`
+}
+
+// MergedPRInfo represents a PR that was merged from this stack.
+type MergedPRInfo struct {
+	Bookmark   string `json:"bookmark"`
+	PRNumber   int    `json:"pr_number"`
+	PRURL      string `json:"pr_url"`
+	MergedInto string `json:"merged_into"` // The base branch it merged into
 }
 
 // StackEntry represents a single entry in the stack for comment generation.
@@ -42,15 +54,17 @@ type StackEntry struct {
 
 // BuildStackComment creates the full comment body for a PR.
 // currentBookmark indicates which PR this comment is being placed on.
-func BuildStackComment(entries []StackEntry, currentBookmark, baseBranch string) string {
+// mergedHistory contains PRs that were previously merged from this stack.
+func BuildStackComment(entries []StackEntry, currentBookmark, baseBranch string, mergedHistory []MergedPRInfo) string {
 	var sb strings.Builder
 
 	// Build metadata
 	data := StackCommentData{
-		Version:   StackCommentVersion,
-		Bookmarks: make([]string, len(entries)),
-		PRNumbers: make(map[string]int),
-		PRURLs:    make(map[string]string),
+		Version:       StackCommentVersion,
+		Bookmarks:     make([]string, len(entries)),
+		PRNumbers:     make(map[string]int),
+		PRURLs:        make(map[string]string),
+		MergedHistory: mergedHistory,
 	}
 
 	for i, e := range entries {
@@ -84,26 +98,30 @@ func BuildStackComment(entries []StackEntry, currentBookmark, baseBranch string)
 		idx := i + 2 // 1-indexed, starting after base
 
 		var line string
-		if e.PRNumber > 0 {
-			// Has PR
-			if e.IsMerged {
-				line = fmt.Sprintf("%d. ~~[%s](%s)~~ (merged)", idx, e.Bookmark, e.PRURL)
-			} else if e.Bookmark == currentBookmark {
-				line = fmt.Sprintf("%d. **[%s](%s) ← this PR**", idx, e.Bookmark, e.PRURL)
-			} else {
-				line = fmt.Sprintf("%d. [%s](%s)", idx, e.Bookmark, e.PRURL)
-			}
-		} else {
-			// No PR yet
-			if e.Bookmark == currentBookmark {
-				line = fmt.Sprintf("%d. **`%s` ← this PR**", idx, e.Bookmark)
-			} else {
-				line = fmt.Sprintf("%d. `%s` (not yet submitted)", idx, e.Bookmark)
-			}
+		switch {
+		case e.PRNumber > 0 && e.IsMerged:
+			line = fmt.Sprintf("%d. ~~[%s](%s)~~ (merged)", idx, e.Bookmark, e.PRURL)
+		case e.PRNumber > 0 && e.Bookmark == currentBookmark:
+			line = fmt.Sprintf("%d. **[%s](%s) ← this PR**", idx, e.Bookmark, e.PRURL)
+		case e.PRNumber > 0:
+			line = fmt.Sprintf("%d. [%s](%s)", idx, e.Bookmark, e.PRURL)
+		case e.Bookmark == currentBookmark:
+			line = fmt.Sprintf("%d. **`%s` ← this PR**", idx, e.Bookmark)
+		default:
+			line = fmt.Sprintf("%d. `%s` (not yet submitted)", idx, e.Bookmark)
 		}
 
 		sb.WriteString(line)
 		sb.WriteString("\n")
+	}
+
+	// Write merged history section if there are merged PRs
+	if len(mergedHistory) > 0 {
+		sb.WriteString("\n### Merged\n\n")
+		for _, m := range mergedHistory {
+			sb.WriteString(fmt.Sprintf("- ~~[%s](%s)~~ → merged into `%s`\n",
+				m.Bookmark, m.PRURL, m.MergedInto))
+		}
 	}
 
 	// Write footer

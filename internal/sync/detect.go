@@ -72,10 +72,7 @@ func DetectMergedBookmarks(
 func FilterMergedFromBottom(
 	merged []MergedBookmark,
 	graph *jjutils.ChangeGraph,
-) ([]MergedBookmark, []string) {
-	var contiguousMerged []MergedBookmark
-	var warnings []string
-
+) (contiguousMerged []MergedBookmark, warnings []string) {
 	// Build a set of merged bookmark names for quick lookup
 	mergedSet := make(map[string]MergedBookmark)
 	for _, m := range merged {

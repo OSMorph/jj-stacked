@@ -31,6 +31,7 @@ func (s *StackCommentSyncer) SyncStackComments(
 	owner, repo string,
 	entries []StackEntry,
 	baseBranch string,
+	mergedHistory []MergedPRInfo,
 ) error {
 	for _, entry := range entries {
 		if entry.PRNumber == 0 {
@@ -38,7 +39,7 @@ func (s *StackCommentSyncer) SyncStackComments(
 			continue
 		}
 
-		if err := s.syncSinglePR(ctx, owner, repo, entry.PRNumber, entry.Bookmark, entries, baseBranch); err != nil {
+		if err := s.syncSinglePR(ctx, owner, repo, entry.PRNumber, entry.Bookmark, entries, baseBranch, mergedHistory); err != nil {
 			return fmt.Errorf("failed to sync comment on PR #%d: %w", entry.PRNumber, err)
 		}
 	}
@@ -54,9 +55,10 @@ func (s *StackCommentSyncer) syncSinglePR(
 	currentBookmark string,
 	entries []StackEntry,
 	baseBranch string,
+	mergedHistory []MergedPRInfo,
 ) error {
 	// Generate comment body
-	body := BuildStackComment(entries, currentBookmark, baseBranch)
+	body := BuildStackComment(entries, currentBookmark, baseBranch, mergedHistory)
 
 	// Look for existing jj-stacked comment
 	existingComment, err := s.FindExistingComment(ctx, owner, repo, prNumber)

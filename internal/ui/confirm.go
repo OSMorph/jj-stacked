@@ -41,9 +41,8 @@ func (m ConfirmModel) Init() tea.Cmd {
 
 // Update implements tea.Model.
 func (m ConfirmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		switch keyMsg.String() {
 		case "left", "h":
 			m.cursor = 0
 		case "right", "l":

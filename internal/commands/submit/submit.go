@@ -214,17 +214,20 @@ func runSubmit(ctx context.Context, bookmark string, opts *Options) error {
 			if !result.Success {
 				errMsg := apperrors.FormatErrorWithHint(result.Error)
 				fmt.Printf("    ✗ Failed: %s\n", errMsg)
-			} else if action.Type() == submit.ActionCreatePR {
+				return
+			}
+			switch action.Type() {
+			case submit.ActionCreatePR:
 				if url, ok := result.Details["pr_url"].(string); ok {
 					fmt.Printf("    ✓ Created: %s\n", url)
 				}
-			} else if action.Type() == submit.ActionClosePR {
+			case submit.ActionClosePR:
 				if prNum, ok := result.Details["pr_number"].(int); ok {
 					fmt.Printf("    ✓ Closed PR #%d\n", prNum)
 				} else {
 					fmt.Printf("    ✓ Closed\n")
 				}
-			} else {
+			default:
 				fmt.Printf("    ✓ Done\n")
 			}
 		},
