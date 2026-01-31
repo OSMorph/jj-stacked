@@ -131,10 +131,11 @@ func (a *UpdateBaseAction) Execute(ctx context.Context, deps *ActionDeps) (*Acti
 
 // SyncCommentAction creates or updates the stack navigation comment on a PR.
 type SyncCommentAction struct {
-	Bookmark        string
-	PRNumber        int
-	StackEntries    []github.StackEntry
-	BaseBranch      string
+	Bookmark      string
+	PRNumber      int
+	StackEntries  []github.StackEntry
+	BaseBranch    string
+	MergedHistory []github.MergedPRInfo
 }
 
 func (a *SyncCommentAction) Type() ActionType {
@@ -152,7 +153,7 @@ func (a *SyncCommentAction) Execute(ctx context.Context, deps *ActionDeps) (*Act
 	}
 
 	// Build the comment body
-	commentBody := github.BuildStackComment(a.StackEntries, a.Bookmark, a.BaseBranch)
+	commentBody := github.BuildStackComment(a.StackEntries, a.Bookmark, a.BaseBranch, a.MergedHistory)
 
 	// List existing comments to find our comment
 	comments, err := deps.GitHub.ListComments(ctx, deps.Owner, deps.Repo, a.PRNumber)

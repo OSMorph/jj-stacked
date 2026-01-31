@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/OSMorph/jj-stacked/internal/github"
+	"github.com/OSMorph/jj-stacked/internal/logger"
 )
 
 // AIDEV-NOTE: The planning phase queries GitHub to determine what actions are needed.
@@ -136,6 +137,9 @@ func CreateSubmissionPlan(
 	// For planning, we use what we know now
 	stackEntries := buildStackEntries(analysis, prInfo)
 
+	// Compute merged history from existing comments
+	mergedHistory := computeMergedHistory(ctx, deps, analysis, prInfo)
+
 	for _, sb := range analysis.Stack {
 		existingPR := prInfo[sb.Bookmark.Name]
 		prNumber := 0
@@ -149,10 +153,11 @@ func CreateSubmissionPlan(
 		if prNumber > 0 || existingPR == nil {
 			// Only add sync action if we'll have a PR (existing or to be created)
 			plan.Actions = append(plan.Actions, &SyncCommentAction{
-				Bookmark:     sb.Bookmark.Name,
-				PRNumber:     prNumber, // 0 for new PRs - will be filled during execution
-				StackEntries: stackEntries,
-				BaseBranch:   deps.DefaultBranch,
+				Bookmark:      sb.Bookmark.Name,
+				PRNumber:      prNumber, // 0 for new PRs - will be filled during execution
+				StackEntries:  stackEntries,
+				BaseBranch:    deps.DefaultBranch,
+				MergedHistory: mergedHistory,
 			})
 			plan.Summary.CommentsToSync++
 		}
@@ -275,4 +280,111 @@ func findOrphanedPRs(
 	}
 
 	return orphaned
+}
+
+// computeMergedHistory extracts merged PR history from existing comments and identifies
+// newly merged PRs that should be added to the history.
+// If parsing an existing comment fails (e.g., due to manual edits), we proceed with
+// whatever information we have - the comment will be overwritten with current data.
+func computeMergedHistory(
+	ctx context.Context,
+	deps *PlanningDeps,
+	analysis *AnalysisResult,
+	prInfo map[string]*github.PullRequest,
+) []github.MergedPRInfo {
+	log := logger.NewFromEnv()
+
+	// Build a set of current bookmarks in the stack
+	currentBookmarks := make(map[string]bool)
+	for _, sb := range analysis.Stack {
+		currentBookmarks[sb.Bookmark.Name] = true
+	}
+
+	// Track merged history from all PRs in the stack
+	// Use a map to deduplicate by PR number
+	mergedByPRNum := make(map[int]github.MergedPRInfo)
+
+	// First, collect existing merged history from any PR that has a stack comment
+	for _, pr := range prInfo {
+		if pr == nil || pr.Number == 0 {
+			continue
+		}
+
+		comments, err := deps.GitHub.ListComments(ctx, deps.Owner, deps.Repo, pr.Number)
+		if err != nil {
+			continue
+		}
+
+		for _, comment := range comments {
+			if !github.IsStackComment(comment.Body) {
+				continue
+			}
+
+			existingData, err := github.ParseStackComment(comment.Body)
+			if err != nil || existingData == nil {
+				// Comment is malformed (possibly manually edited) - skip extracting
+				// history from it. The comment will be overwritten with current data.
+				log.Debug("failed to parse stack comment, will overwrite",
+					"pr", pr.Number,
+					"error", err,
+				)
+				continue
+			}
+
+			// Add existing merged history
+			for _, m := range existingData.MergedHistory {
+				if _, exists := mergedByPRNum[m.PRNumber]; !exists {
+					mergedByPRNum[m.PRNumber] = m
+				}
+			}
+
+			// Check if any bookmarks from the existing comment are now merged
+			// These are bookmarks that were in the previous stack but are no longer
+			// in our current stack
+			for _, bookmark := range existingData.Bookmarks {
+				// Skip if this bookmark is still in our current stack
+				if currentBookmarks[bookmark] {
+					continue
+				}
+
+				// Skip if we don't have PR info for this bookmark
+				prNum, hasPRNum := existingData.PRNumbers[bookmark]
+				prURL, hasPRURL := existingData.PRURLs[bookmark]
+				if !hasPRNum || !hasPRURL || prNum == 0 {
+					continue
+				}
+
+				// Skip if already in merged history
+				if _, exists := mergedByPRNum[prNum]; exists {
+					continue
+				}
+
+				// Query GitHub to check if this PR was merged
+				oldPR, err := deps.GitHub.GetPullRequest(ctx, deps.Owner, deps.Repo, prNum)
+				if err != nil {
+					continue
+				}
+
+				if oldPR.Merged {
+					mergedByPRNum[prNum] = github.MergedPRInfo{
+						Bookmark:   bookmark,
+						PRNumber:   prNum,
+						PRURL:      prURL,
+						MergedInto: oldPR.Base,
+					}
+				}
+			}
+
+			// Only need to parse one stack comment per PR
+			break
+		}
+	}
+
+	// Convert map to slice
+	result := make([]github.MergedPRInfo, 0, len(mergedByPRNum))
+	for _, m := range mergedByPRNum {
+		result = append(result, m)
+	}
+
+	return result
 }
