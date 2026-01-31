@@ -43,44 +43,42 @@ See [Releases](https://github.com/OSMorph/jj-stacked/releases) for all platforms
 
 ## Installation
 
-### From Releases (Recommended)
-
-Download the latest binary for your platform from [Releases](https://github.com/OSMorph/jj-stacked/releases).
+### Quick Install (Recommended)
 
 ```bash
-# macOS Apple Silicon
-curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_darwin_arm64.tar.gz | tar xz
-
-# macOS Intel
-curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_darwin_amd64.tar.gz | tar xz
-
-# Linux x86_64
-curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_linux_amd64.tar.gz | tar xz
-
-# Linux ARM64
-curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_linux_arm64.tar.gz | tar xz
-
-# Then move to your PATH
-sudo mv jj-stacked jjk /usr/local/bin/
+curl -sSL https://raw.githubusercontent.com/OSMorph/jj-stacked/main/install.sh | bash
 ```
 
-### Using go install
+Options:
+- Install specific version: `curl -sSL https://raw.githubusercontent.com/OSMorph/jj-stacked/main/install.sh | bash -s -- --version v0.1.0`
+- Custom location: `curl -sSL https://raw.githubusercontent.com/OSMorph/jj-stacked/main/install.sh | bash -s -- --prefix /usr/local`
+
+### Homebrew (macOS/Linux)
+
+```bash
+brew tap OSMorph/tap
+brew install jj-stacked
+```
+
+### From Releases
+
+Download from [Releases](https://github.com/OSMorph/jj-stacked/releases):
+
+| Platform | Download |
+|----------|----------|
+| macOS Apple Silicon | `jj-stacked_<version>_darwin_arm64.tar.gz` |
+| macOS Intel | `jj-stacked_<version>_darwin_amd64.tar.gz` |
+| Linux x86_64 | `jj-stacked_<version>_linux_amd64.tar.gz` |
+| Linux ARM64 | `jj-stacked_<version>_linux_arm64.tar.gz` |
+| Windows x64 | `jj-stacked_<version>_windows_amd64.zip` |
+
+### Using Go
 
 ```bash
 go install github.com/OSMorph/jj-stacked/cmd/jj-stacked@latest
 ```
 
-Note: This only installs `jj-stacked`. For the `jjk` alias, use another installation method.
-
-### Build Locally
-
-```bash
-git clone https://github.com/OSMorph/jj-stacked.git
-cd jj-stacked
-make install
-```
-
-This installs both `jj-stacked` and the shorter `jjk` alias to your `$GOPATH/bin`.
+Note: This only installs `jj-stacked`. For the `jjk` alias, use another method.
 
 ## Authentication
 

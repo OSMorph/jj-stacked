@@ -126,17 +126,16 @@ release:
     go install github.com/OSMorph/jj-stacked/cmd/jj-stacked@{{ .Tag }}
     ```
 
-# Homebrew formula (optional - requires a separate tap repository)
-# Uncomment and configure if you have a homebrew-tap repository
-# brews:
-#   - repository:
-#       owner: lsanpablo
-#       name: homebrew-tap
-#     homepage: https://github.com/OSMorph/jj-stacked
-#     description: Stacked pull requests for Jujutsu users
-#     license: MIT
-#     folder: Formula
-#     test: |
-#       system "#{bin}/jj-stacked", "--version"
-#     install: |
-#       bin.install "jj-stacked"
+brews:
+  - repository:
+      owner: OSMorph
+      name: homebrew-tap
+    homepage: https://github.com/OSMorph/jj-stacked
+    description: Stacked pull requests for Jujutsu users
+    license: MIT
+    folder: Formula
+    install: |
+      bin.install "jj-stacked"
+      bin.install "jjk"
+    test: |
+      system "#{bin}/jj-stacked", "--version"
