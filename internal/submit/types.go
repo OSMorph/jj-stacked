@@ -72,6 +72,7 @@ type SubmissionPlan struct {
 // ActionType identifies the type of submission action.
 type ActionType string
 
+// Action types for submission actions.
 const (
 	ActionPush        ActionType = "push"
 	ActionCreatePR    ActionType = "create_pr"
@@ -131,7 +132,7 @@ type ActionResult struct {
 	Error error
 
 	// Details contains action-specific output (e.g., PR URL, PR number)
-	Details map[string]interface{}
+	Details map[string]any
 }
 
 // ExecutionSummary provides counts of execution outcomes.

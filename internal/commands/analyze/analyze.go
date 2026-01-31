@@ -83,11 +83,11 @@ type StackOutput struct {
 
 // SegmentOutput represents a segment in JSON output.
 type SegmentOutput struct {
-	Bookmark    string   `json:"bookmark"`
-	ChangeCount int      `json:"change_count"`
-	IsSynced    bool     `json:"is_synced"`
-	NeedsPush   bool     `json:"needs_push"`
-	Parent      string   `json:"parent,omitempty"`
+	Bookmark    string `json:"bookmark"`
+	ChangeCount int    `json:"change_count"`
+	IsSynced    bool   `json:"is_synced"`
+	NeedsPush   bool   `json:"needs_push"`
+	Parent      string `json:"parent,omitempty"`
 }
 
 func runAnalyze(ctx context.Context, opts *Options) error {

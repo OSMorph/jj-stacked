@@ -49,3 +49,18 @@ issues:
   exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
+  exclude-rules:
+    # Stuttering type names are intentional design choices in this codebase
+    - linters:
+        - revive
+      text: "stutters"
+    # Bubble Tea models require value receivers for the tea.Model interface
+    - linters:
+        - gocritic
+      text: "hugeParam"
+      path: "internal/ui/"
+    # evalOrder suggestion in graph.go is a false positive for Bubble Tea patterns
+    - linters:
+        - gocritic
+      text: "evalOrder"
+      path: "internal/ui/graph.go"

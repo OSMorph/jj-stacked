@@ -16,18 +16,21 @@ type PushAction struct {
 	Remote   string
 }
 
+// Type implements SubmissionAction.
 func (a *PushAction) Type() ActionType {
 	return ActionPush
 }
 
+// Description implements SubmissionAction.
 func (a *PushAction) Description() string {
 	return fmt.Sprintf("Push bookmark '%s' to %s", a.Bookmark, a.Remote)
 }
 
+// Execute implements SubmissionAction.
 func (a *PushAction) Execute(ctx context.Context, deps *ActionDeps) (*ActionResult, error) {
 	result := &ActionResult{
 		Action:  a,
-		Details: make(map[string]interface{}),
+		Details: make(map[string]any),
 	}
 
 	err := deps.JJ.Push(ctx, deps.Remote, a.Bookmark)
@@ -52,18 +55,21 @@ type CreatePRAction struct {
 	Draft      bool
 }
 
+// Type implements SubmissionAction.
 func (a *CreatePRAction) Type() ActionType {
 	return ActionCreatePR
 }
 
+// Description implements SubmissionAction.
 func (a *CreatePRAction) Description() string {
 	return fmt.Sprintf("Create PR for '%s' → %s", a.Bookmark, a.BaseBranch)
 }
 
+// Execute implements SubmissionAction.
 func (a *CreatePRAction) Execute(ctx context.Context, deps *ActionDeps) (*ActionResult, error) {
 	result := &ActionResult{
 		Action:  a,
-		Details: make(map[string]interface{}),
+		Details: make(map[string]any),
 	}
 
 	req := &github.CreatePRRequest{
@@ -97,18 +103,21 @@ type UpdateBaseAction struct {
 	OldBase  string
 }
 
+// Type implements SubmissionAction.
 func (a *UpdateBaseAction) Type() ActionType {
 	return ActionUpdateBase
 }
 
+// Description implements SubmissionAction.
 func (a *UpdateBaseAction) Description() string {
 	return fmt.Sprintf("Update PR #%d base: %s → %s", a.PRNumber, a.OldBase, a.NewBase)
 }
 
+// Execute implements SubmissionAction.
 func (a *UpdateBaseAction) Execute(ctx context.Context, deps *ActionDeps) (*ActionResult, error) {
 	result := &ActionResult{
 		Action:  a,
-		Details: make(map[string]interface{}),
+		Details: make(map[string]any),
 	}
 
 	req := &github.UpdatePRRequest{
@@ -138,18 +147,21 @@ type SyncCommentAction struct {
 	MergedHistory []github.MergedPRInfo
 }
 
+// Type implements SubmissionAction.
 func (a *SyncCommentAction) Type() ActionType {
 	return ActionSyncComment
 }
 
+// Description implements SubmissionAction.
 func (a *SyncCommentAction) Description() string {
 	return fmt.Sprintf("Sync stack comment on PR #%d", a.PRNumber)
 }
 
+// Execute implements SubmissionAction.
 func (a *SyncCommentAction) Execute(ctx context.Context, deps *ActionDeps) (*ActionResult, error) {
 	result := &ActionResult{
 		Action:  a,
-		Details: make(map[string]interface{}),
+		Details: make(map[string]any),
 	}
 
 	// Build the comment body
@@ -206,18 +218,21 @@ type ClosePRAction struct {
 	Reason   string // Why the PR is being closed
 }
 
+// Type implements SubmissionAction.
 func (a *ClosePRAction) Type() ActionType {
 	return ActionClosePR
 }
 
+// Description implements SubmissionAction.
 func (a *ClosePRAction) Description() string {
 	return fmt.Sprintf("Close orphaned PR #%d (branch '%s' no longer exists)", a.PRNumber, a.Branch)
 }
 
+// Execute implements SubmissionAction.
 func (a *ClosePRAction) Execute(ctx context.Context, deps *ActionDeps) (*ActionResult, error) {
 	result := &ActionResult{
 		Action:  a,
-		Details: make(map[string]interface{}),
+		Details: make(map[string]any),
 	}
 
 	closedState := "closed"

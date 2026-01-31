@@ -102,17 +102,15 @@ func CreateSubmissionPlan(
 				Draft:      false, // Will be set by command flags
 			})
 			plan.Summary.PRsToCreate++
-		} else {
-			// PR exists - check if base needs update
-			if existingPR.Base != expectedBase {
-				plan.Actions = append(plan.Actions, &UpdateBaseAction{
-					Bookmark: sb.Bookmark.Name,
-					PRNumber: existingPR.Number,
-					NewBase:  expectedBase,
-					OldBase:  existingPR.Base,
-				})
-				plan.Summary.PRsToUpdate++
-			}
+		} else if existingPR.Base != expectedBase {
+			// PR exists and base needs update
+			plan.Actions = append(plan.Actions, &UpdateBaseAction{
+				Bookmark: sb.Bookmark.Name,
+				PRNumber: existingPR.Number,
+				NewBase:  expectedBase,
+				OldBase:  existingPR.Base,
+			})
+			plan.Summary.PRsToUpdate++
 		}
 	}
 

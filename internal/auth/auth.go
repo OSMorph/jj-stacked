@@ -257,7 +257,7 @@ func (a *envAuthenticator) Host() string {
 func validateTokenAndGetUser(ctx context.Context, token, hostname string) (*GitHubUser, error) {
 	apiURL := getAPIBaseURL(hostname) + "/user"
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, http.NoBody)
 	if err != nil {
 		return nil, &apperrors.AuthError{
 			Host:    hostname,
@@ -278,7 +278,7 @@ func validateTokenAndGetUser(ctx context.Context, token, hostname string) (*GitH
 			Err:     err,
 		}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == 401 {
 		return nil, &apperrors.AuthError{

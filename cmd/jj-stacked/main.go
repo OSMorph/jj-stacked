@@ -29,8 +29,8 @@ func main() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:     "jj-stacked",
-	Short:   "Manage stacked pull requests for Jujutsu repositories",
+	Use:   "jj-stacked",
+	Short: "Manage stacked pull requests for Jujutsu repositories",
 	Long: `jj-stacked is a CLI tool for creating and managing stacked pull requests
 on GitHub for developers using Jujutsu (jj) version control.
 
@@ -64,8 +64,6 @@ EXAMPLES:
 		return analyzecmd.RunDefault(cmd.Context())
 	},
 }
-
-
 
 func init() {
 	// Setup Flags

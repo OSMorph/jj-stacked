@@ -23,7 +23,9 @@ const (
 // logEntryTemplate is the jj template for getting change information.
 // Produces delimited output: fields separated by 0x1F, records by 0x1E.
 // Field order: commit_id, change_id, author_name, author_email, description_first_line,
-//              description, parents, local_bookmarks, remote_bookmarks, is_working_copy, is_empty, conflict
+//
+//	description, parents, local_bookmarks, remote_bookmarks, is_working_copy, is_empty, conflict
+//
 // Note: jj only interprets escape sequences in double quotes, so we use \"\\x1f\" for delimiters.
 const logEntryTemplate = "concat(" +
 	"commit_id.short(), \"\\x1f\"," +
@@ -55,7 +57,7 @@ const bookmarkTemplate = "if(" +
 	"self.normal_target().commit_id().short(), \"\\x1f\"," +
 	"self.normal_target().change_id().short(), \"\\x1f\"," +
 	"\"false\", \"\\x1f\"," + // has_remote placeholder
-	"\"false\"," +           // is_synced placeholder
+	"\"false\"," + // is_synced placeholder
 	"\"\\x1e\"" +
 	")," +
 	"\"\"" +

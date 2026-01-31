@@ -79,10 +79,11 @@ func formatAction(action SubmissionAction) string {
 		return fmt.Sprintf("[PUSH] Push bookmark '%s' to %s", a.Bookmark, a.Remote)
 
 	case *CreatePRAction:
-		var parts []string
-		parts = append(parts, fmt.Sprintf("[CREATE PR] Create PR for '%s'", a.Bookmark))
-		parts = append(parts, fmt.Sprintf("     Title: %q", truncate(a.Title, 50)))
-		parts = append(parts, fmt.Sprintf("     Base: %s", a.BaseBranch))
+		parts := []string{
+			fmt.Sprintf("[CREATE PR] Create PR for '%s'", a.Bookmark),
+			fmt.Sprintf("     Title: %q", truncate(a.Title, 50)),
+			fmt.Sprintf("     Base: %s", a.BaseBranch),
+		}
 		if a.Draft {
 			parts = append(parts, "     Draft: yes")
 		}

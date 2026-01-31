@@ -98,22 +98,17 @@ func BuildStackComment(entries []StackEntry, currentBookmark, baseBranch string,
 		idx := i + 2 // 1-indexed, starting after base
 
 		var line string
-		if e.PRNumber > 0 {
-			// Has PR
-			if e.IsMerged {
-				line = fmt.Sprintf("%d. ~~[%s](%s)~~ (merged)", idx, e.Bookmark, e.PRURL)
-			} else if e.Bookmark == currentBookmark {
-				line = fmt.Sprintf("%d. **[%s](%s) ← this PR**", idx, e.Bookmark, e.PRURL)
-			} else {
-				line = fmt.Sprintf("%d. [%s](%s)", idx, e.Bookmark, e.PRURL)
-			}
-		} else {
-			// No PR yet
-			if e.Bookmark == currentBookmark {
-				line = fmt.Sprintf("%d. **`%s` ← this PR**", idx, e.Bookmark)
-			} else {
-				line = fmt.Sprintf("%d. `%s` (not yet submitted)", idx, e.Bookmark)
-			}
+		switch {
+		case e.PRNumber > 0 && e.IsMerged:
+			line = fmt.Sprintf("%d. ~~[%s](%s)~~ (merged)", idx, e.Bookmark, e.PRURL)
+		case e.PRNumber > 0 && e.Bookmark == currentBookmark:
+			line = fmt.Sprintf("%d. **[%s](%s) ← this PR**", idx, e.Bookmark, e.PRURL)
+		case e.PRNumber > 0:
+			line = fmt.Sprintf("%d. [%s](%s)", idx, e.Bookmark, e.PRURL)
+		case e.Bookmark == currentBookmark:
+			line = fmt.Sprintf("%d. **`%s` ← this PR**", idx, e.Bookmark)
+		default:
+			line = fmt.Sprintf("%d. `%s` (not yet submitted)", idx, e.Bookmark)
 		}
 
 		sb.WriteString(line)

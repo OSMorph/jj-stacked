@@ -144,7 +144,7 @@ func waitForRateLimit(ctx context.Context, resetTime time.Time) error {
 }
 
 // isRetryable determines if an error is retryable.
-func isRetryable(resp *github.Response, err error) bool {
+func isRetryable(resp *github.Response, _ error) bool {
 	if resp == nil {
 		return false
 	}

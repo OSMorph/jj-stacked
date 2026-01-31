@@ -224,7 +224,8 @@ func getExistingBookmarks(ctx context.Context, jj jjutils.JJFunctions) map[strin
 func FormatResult(result *SyncResult) string {
 	var sb strings.Builder
 
-	if result.Success {
+	switch {
+	case result.Success:
 		var parts []string
 		if len(result.Rebased) > 0 {
 			parts = append(parts, fmt.Sprintf("rebased %d bookmark%s",
@@ -243,11 +244,11 @@ func FormatResult(result *SyncResult) string {
 		} else {
 			sb.WriteString(fmt.Sprintf("Sync complete: %s", joinParts(parts)))
 		}
-	} else if result.HasConflicts {
+	case result.HasConflicts:
 		sb.WriteString("Sync paused: rebase resulted in conflicts. Resolve conflicts and run 'jj-stacked sync --continue'")
-	} else if len(result.Errors) > 0 {
+	case len(result.Errors) > 0:
 		sb.WriteString(fmt.Sprintf("Sync failed: %v", result.Errors[0]))
-	} else {
+	default:
 		sb.WriteString("Sync failed")
 	}
 

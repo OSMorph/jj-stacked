@@ -79,8 +79,8 @@ func (j *jjFunctions) BuildChangeGraph(ctx context.Context) (*ChangeGraph, error
 
 	// Step 6: Detect merge commits and mark tainted bookmarks
 	for name, segment := range graph.Segments {
-		for _, change := range segment.Changes {
-			if change.IsMergeCommit() {
+		for i := range segment.Changes {
+			if segment.Changes[i].IsMergeCommit() {
 				j.markTainted(graph, name)
 				break
 			}
@@ -116,13 +116,13 @@ func (j *jjFunctions) buildSegment(ctx context.Context, bm Bookmark, allBookmark
 	var segmentChanges []LogEntry
 	var parentBookmark string
 
-	for _, entry := range entries {
+	for i := range entries {
 		// Skip the bookmark's own change if it has the bookmark
 		// (The first entry should be the bookmark itself)
-		isOwnChange := entry.ChangeID == bm.ChangeID
+		isOwnChange := entries[i].ChangeID == bm.ChangeID
 
 		// Check if this change has another user bookmark
-		for _, localBm := range entry.LocalBookmarks {
+		for _, localBm := range entries[i].LocalBookmarks {
 			// Strip jj display markers (* for dirty, @ for remote tracking)
 			// These appear in log output but not in bookmark names
 			cleanBm := cleanBookmarkName(localBm)
@@ -137,7 +137,7 @@ func (j *jjFunctions) buildSegment(ctx context.Context, bm Bookmark, allBookmark
 			}
 		}
 
-		segmentChanges = append(segmentChanges, entry)
+		segmentChanges = append(segmentChanges, entries[i])
 	}
 
 done:
