@@ -54,7 +54,8 @@ EXAMPLES:
 
   # Check your GitHub authentication
   jj-stacked auth test`,
-	Version: version,
+	Version:           version,
+	DisableAutoGenTag: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// When run without subcommands, launch the interactive graph UI
 		// Handle --no-color flag
