@@ -135,7 +135,7 @@ brews:
     homepage: https://github.com/OSMorph/jj-stacked
     description: Stacked pull requests for Jujutsu users
     license: MIT
-    folder: Formula
+    directory: Formula
     # Skip if token is not available
     skip_upload: auto
     install: |
