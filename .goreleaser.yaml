@@ -130,10 +130,14 @@ brews:
   - repository:
       owner: OSMorph
       name: homebrew-tap
+      # Use HOMEBREW_TAP_GITHUB_TOKEN if available, otherwise skip
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/OSMorph/jj-stacked
     description: Stacked pull requests for Jujutsu users
     license: MIT
     folder: Formula
+    # Skip if token is not available
+    skip_upload: auto
     install: |
       bin.install "jj-stacked"
       bin.install "jjk"

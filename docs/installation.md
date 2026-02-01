@@ -22,6 +22,24 @@ If you don't have Jujutsu installed, see the [Jujutsu installation guide](https:
 
 ## Installation Methods
 
+### Homebrew (macOS/Linux)
+
+The easiest way to install on macOS or Linux:
+
+```bash
+brew tap OSMorph/tap
+brew install jj-stacked
+```
+
+This installs both `jj-stacked` and the `jjk` alias.
+
+To upgrade:
+
+```bash
+brew update
+brew upgrade jj-stacked
+```
+
 ### From Releases (Recommended)
 
 Download the latest release for your platform from GitHub Releases:
