@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.1](https://github.com/OSMorph/jj-stacked/compare/v2.4.0...v2.4.1) (2026-02-01)
+
+
+### Bug Fixes
+
+* correct goreleaser config for homebrew formula ([8c56dda](https://github.com/OSMorph/jj-stacked/commit/8c56dda1cc73b68906745f20803d82345f4aaf4b))
+* correct goreleaser config for homebrew formula ([545403c](https://github.com/OSMorph/jj-stacked/commit/545403c5c2c66923df5f0ca72a5e0875ae13d5f4))
+
 ## [2.4.0](https://github.com/OSMorph/jj-stacked/compare/v2.3.0...v2.4.0) (2026-02-01)
 
 
