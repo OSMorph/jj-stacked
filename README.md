@@ -7,9 +7,11 @@ Stacked pull requests for Jujutsu users.
 ## Quick Start
 
 ```bash
-# Download latest release (macOS Apple Silicon example)
-curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_darwin_arm64.tar.gz | tar xz
-sudo mv jj-stacked jjk /usr/local/bin/
+# Install (recommended)
+curl -sSL https://raw.githubusercontent.com/OSMorph/jj-stacked/main/install.sh | bash
+
+# If ~/.local/bin isn't on your PATH:
+export PATH="$HOME/.local/bin:$PATH"
 
 # Authenticate (if you have GitHub CLI)
 gh auth login
@@ -21,7 +23,7 @@ jjk
 jjk submit my-feature
 ```
 
-See [Releases](https://github.com/OSMorph/jj-stacked/releases) for all platforms (macOS, Linux, Windows).
+See [Installation](#installation) for other install methods (Homebrew, manual downloads, `go install`).
 
 > **Note:** `jjk` is a short alias for `jj-stacked`. All examples in this README work with either command.
 
