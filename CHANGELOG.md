@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.4.2](https://github.com/OSMorph/jj-stacked/compare/v2.4.1...v2.4.2) (2026-02-02)
+
+
+### Bug Fixes
+
+* **sync:** skip pushing deleted bookmarks ([da85bbd](https://github.com/OSMorph/jj-stacked/commit/da85bbd132075a6f4390eb98c433502a1e47466d))
+* **sync:** skip pushing deleted bookmarks ([da85bbd](https://github.com/OSMorph/jj-stacked/commit/da85bbd132075a6f4390eb98c433502a1e47466d))
+* **sync:** skip pushing deleted bookmarks ([c1970a6](https://github.com/OSMorph/jj-stacked/commit/c1970a63370695bba5efd98ed28449a50abaac33))
+
 ## [2.4.1](https://github.com/OSMorph/jj-stacked/compare/v2.4.0...v2.4.1) (2026-02-01)
 
 
