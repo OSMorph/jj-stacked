@@ -59,6 +59,7 @@ func ExecuteSync(
 	// After fetch, some bookmarks may have been deleted (if their remote branch was deleted)
 	// Re-check which bookmarks still exist
 	existingBookmarks := getExistingBookmarks(ctx, jj)
+	missingBookmarks := make(map[string]bool)
 
 	// Filter ToRebase to only include bookmarks that still exist
 	var filteredToRebase []string
@@ -66,6 +67,7 @@ func ExecuteSync(
 		if existingBookmarks[bm] {
 			filteredToRebase = append(filteredToRebase, bm)
 		} else {
+			missingBookmarks[bm] = true
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("bookmark %s was deleted during fetch (remote branch likely deleted after PR merge)", bm))
 		}
@@ -137,6 +139,23 @@ func ExecuteSync(
 	// We merge the original ToPush list with all rebased bookmarks
 	bookmarksToPush := buildPushList(plan.ToPush, result.Rebased)
 
+	// Some bookmarks may have been deleted/abandoned since planning or during fetch.
+	// Filter the push list to only include bookmarks that currently exist.
+	// This prevents "No such bookmark" errors when a remote branch was deleted after PR merge.
+	existingAfterRebase := getExistingBookmarks(ctx, jj)
+	var filteredToPush []string
+	for _, bm := range bookmarksToPush {
+		if existingAfterRebase[bm] {
+			filteredToPush = append(filteredToPush, bm)
+			continue
+		}
+		if !missingBookmarks[bm] {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("skipping push for %s: bookmark no longer exists", bm))
+		}
+	}
+	bookmarksToPush = filteredToPush
+
 	for _, bookmark := range bookmarksToPush {
 		if callbacks != nil && callbacks.OnPushStart != nil {
 			callbacks.OnPushStart(bookmark)
@@ -207,7 +226,9 @@ func findStackRootsFromList(bookmarks []string, existingBookmarks map[string]boo
 
 // getExistingBookmarks returns a set of bookmark names that currently exist.
 func getExistingBookmarks(ctx context.Context, jj jjutils.JJFunctions) map[string]bool {
-	bookmarks, err := jj.ListUserBookmarks(ctx)
+	// Use all local bookmarks, not just "user" bookmarks. Some commands (notably push)
+	// require the bookmark to exist regardless of whether it points at trunk() or not.
+	bookmarks, err := jj.ListBookmarks(ctx)
 	if err != nil {
 		// On error, return empty map (will cause all bookmarks to be filtered out)
 		return make(map[string]bool)
