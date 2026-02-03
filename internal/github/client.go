@@ -32,6 +32,7 @@ type GitHubClient interface {
 
 	// Repository info
 	GetDefaultBranch(ctx context.Context, owner, repo string) (string, error)
+	BranchExists(ctx context.Context, owner, repo, branch string) (bool, error)
 
 	// User info
 	GetAuthenticatedUser(ctx context.Context) (string, error)
@@ -339,6 +340,17 @@ func (c *client) GetDefaultBranch(ctx context.Context, owner, repo string) (stri
 	}
 
 	return repository.GetDefaultBranch(), nil
+}
+
+func (c *client) BranchExists(ctx context.Context, owner, repo, branch string) (bool, error) {
+	_, resp, err := c.gh.Repositories.GetBranch(ctx, owner, repo, branch, 0)
+	if err != nil {
+		if resp != nil && resp.StatusCode == http.StatusNotFound {
+			return false, nil
+		}
+		return false, c.wrapError("branch_exists", resp, err)
+	}
+	return true, nil
 }
 
 func (c *client) GetAuthenticatedUser(ctx context.Context) (string, error) {

@@ -664,6 +664,14 @@ func (m *mockGitHubClient) GetDefaultBranch(ctx context.Context, owner, repo str
 	return "main", nil
 }
 
+func (m *mockGitHubClient) BranchExists(ctx context.Context, owner, repo, branch string) (bool, error) {
+	if m.returnError != nil {
+		return false, m.returnError
+	}
+	// For integration tests, assume branches exist unless explicitly modeled.
+	return true, nil
+}
+
 func (m *mockGitHubClient) GetAuthenticatedUser(ctx context.Context) (string, error) {
 	if m.returnError != nil {
 		return "", m.returnError

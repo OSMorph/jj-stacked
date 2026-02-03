@@ -98,7 +98,7 @@ func formatAction(action SubmissionAction) string {
 			a.PRNumber, a.Bookmark)
 
 	case *ClosePRAction:
-		return fmt.Sprintf("[CLOSE PR] Close orphaned PR #%d (branch '%s' no longer exists)",
+		return fmt.Sprintf("[CLOSE PR] Close orphaned PR #%d (branch '%s' no longer exists on remote)",
 			a.PRNumber, a.Branch)
 
 	default:
