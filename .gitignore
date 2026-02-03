@@ -37,3 +37,4 @@ __debug_bin*
 # Build output
 bin/
 dist/
+AGENTS.md
