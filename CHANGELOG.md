@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.3](https://github.com/OSMorph/jj-stacked/compare/v2.4.2...v2.4.3) (2026-02-03)
+
+
+### Miscellaneous Chores
+
+* release 2.4.3 ([d62cead](https://github.com/OSMorph/jj-stacked/commit/d62cead8dc922f755d6fda98a0286b7bc3914669))
+
 ## [2.4.2](https://github.com/OSMorph/jj-stacked/compare/v2.4.1...v2.4.2) (2026-02-02)
 
 
