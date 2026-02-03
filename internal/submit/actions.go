@@ -211,7 +211,7 @@ func (a *SyncCommentAction) Execute(ctx context.Context, deps *ActionDeps) (*Act
 	return result, nil
 }
 
-// ClosePRAction closes an orphaned PR (PR whose branch no longer exists locally).
+// ClosePRAction closes an orphaned PR (PR whose head branch no longer exists on the remote).
 type ClosePRAction struct {
 	PRNumber int
 	Branch   string // The branch name that no longer exists
@@ -225,7 +225,7 @@ func (a *ClosePRAction) Type() ActionType {
 
 // Description implements SubmissionAction.
 func (a *ClosePRAction) Description() string {
-	return fmt.Sprintf("Close orphaned PR #%d (branch '%s' no longer exists)", a.PRNumber, a.Branch)
+	return fmt.Sprintf("Close orphaned PR #%d (branch '%s' no longer exists on remote)", a.PRNumber, a.Branch)
 }
 
 // Execute implements SubmissionAction.

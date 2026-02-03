@@ -122,7 +122,7 @@ func CreateSubmissionPlan(
 		plan.Actions = append(plan.Actions, &ClosePRAction{
 			PRNumber: orphan.Number,
 			Branch:   orphan.Head,
-			Reason:   "Branch no longer exists locally (bookmark may have been renamed)",
+			Reason:   "Head branch no longer exists on remote (bookmark may have been renamed)",
 		})
 		plan.Summary.PRsToClose++
 	}
@@ -205,8 +205,9 @@ func GetActionsOfType(plan *SubmissionPlan, actionType ActionType) []SubmissionA
 	return result
 }
 
-// findOrphanedPRs finds open PRs that are likely orphaned because their branch
-// no longer exists locally. This typically happens when a bookmark is renamed.
+// findOrphanedPRs finds open PRs that are likely orphaned because their head branch
+// no longer exists on the remote. This typically happens when a bookmark is renamed
+// (and the old remote branch was deleted).
 func findOrphanedPRs(
 	ctx context.Context,
 	deps *PlanningDeps,
@@ -268,8 +269,15 @@ func findOrphanedPRs(
 
 			for _, comment := range comments {
 				if github.IsStackComment(comment.Body) {
-					// This PR has a jj-stacked comment and its branch doesn't exist
-					// It's likely orphaned (bookmark was renamed)
+					// This PR looks like it was managed by jj-stacked, but we should only
+					// auto-close it if we can confirm its head branch is actually gone on
+					// the remote. Being conservative here avoids closing PRs from other
+					// stacks that happen to be stacked on top of this one.
+					exists, err := deps.GitHub.BranchExists(ctx, deps.Owner, deps.Repo, pr.Head)
+					if err != nil || exists {
+						break
+					}
+
 					orphaned = append(orphaned, pr)
 					break
 				}
