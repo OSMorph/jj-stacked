@@ -94,11 +94,11 @@ func TestFindOrphanedPRs_DoesNotCloseWhenBranchStillExistsOnRemote(t *testing.T)
 			2: {{Body: stackComment}},
 		},
 		branches: map[string]bool{
-			"other-stack-branch":  true,
-			"renamed-old-branch":  false,
-			"a":                   true,
-			"b":                   true,
-			"main":                true,
+			"other-stack-branch":    true,
+			"renamed-old-branch":    false,
+			"a":                     true,
+			"b":                     true,
+			"main":                  true,
 			"some-unrelated-branch": true,
 		},
 	}
@@ -119,4 +119,3 @@ func TestFindOrphanedPRs_DoesNotCloseWhenBranchStillExistsOnRemote(t *testing.T)
 		t.Fatalf("orphaned[0].Number = %d, want 2", orphaned[0].Number)
 	}
 }
-
