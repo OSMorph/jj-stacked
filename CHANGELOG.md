@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.5.0](https://github.com/OSMorph/jj-stacked/compare/v2.4.3...v2.5.0) (2026-07-11)
+
+
+### Features
+
+* improve sync, completions, and updates ([c9b022b](https://github.com/OSMorph/jj-stacked/commit/c9b022b67982eec439cddba9414ae02ac0f8d65a))
+
+
+### Bug Fixes
+
+* harden sync and update workflows ([bcf5e74](https://github.com/OSMorph/jj-stacked/commit/bcf5e7452088372a3076b624b0818724459929cd))
+
 ## [2.4.3](https://github.com/OSMorph/jj-stacked/compare/v2.4.2...v2.4.3) (2026-02-03)
 
 
