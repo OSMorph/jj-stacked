@@ -22,8 +22,10 @@ type JJFunctions interface {
 
 	// Bookmark operations
 	ListBookmarks(ctx context.Context) ([]Bookmark, error)
+	ListBookmarksForRemote(ctx context.Context, remote string) ([]Bookmark, error)
 	ListUserBookmarks(ctx context.Context) ([]Bookmark, error)
 	GetBookmarksForChange(ctx context.Context, changeID string) ([]Bookmark, error)
+	DeleteBookmark(ctx context.Context, name string) error
 
 	// Log/History operations
 	GetLog(ctx context.Context, revset string, limit int) ([]LogEntry, error)
@@ -37,6 +39,10 @@ type JJFunctions interface {
 	Abandon(ctx context.Context, revset string) error
 	Rebase(ctx context.Context, source, destination string) error
 	HasConflicts(ctx context.Context) (bool, error)
+	GetConflictFiles(ctx context.Context) ([]string, error)
+	IsAncestor(ctx context.Context, ancestor, descendant string) (bool, error)
+	GetOperationID(ctx context.Context) (string, error)
+	RestoreOperation(ctx context.Context, operationID string) error
 }
 
 // jjFunctions is the real implementation of JJFunctions.

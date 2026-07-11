@@ -3,6 +3,7 @@ package jjutils
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -17,6 +18,40 @@ func cleanBookmarkName(name string) string {
 		name = name[:idx]
 	}
 	return name
+}
+
+// GetConnectedBookmarks returns a bookmark's entire connected stack in
+// deterministic base-to-tip order, including branching descendants.
+func (g *ChangeGraph) GetConnectedBookmarks(bookmarkName string) []string {
+	if _, ok := g.Bookmarks[bookmarkName]; !ok {
+		return nil
+	}
+	root := bookmarkName
+	for g.ChildToParent[root] != "" {
+		root = g.ChildToParent[root]
+	}
+
+	depth := map[string]int{root: 0}
+	queue := []string{root}
+	var result []string
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+		result = append(result, name)
+		children := append([]string(nil), g.ParentToChildren[name]...)
+		sort.Strings(children)
+		for _, child := range children {
+			depth[child] = depth[name] + 1
+			queue = append(queue, child)
+		}
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		if depth[result[i]] == depth[result[j]] {
+			return result[i] < result[j]
+		}
+		return depth[result[i]] < depth[result[j]]
+	})
+	return result
 }
 
 // BuildChangeGraph builds a complete change graph from the user's bookmarks.

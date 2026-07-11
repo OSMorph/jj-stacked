@@ -14,6 +14,7 @@ type AnalyzeOptions struct {
 	// Bookmark limits sync to only this bookmark's stack.
 	// If empty, all stacks are analyzed.
 	Bookmark string
+	Remote   string
 }
 
 // SyncAnalysis is the result of analyzing what needs to be synced.
@@ -33,6 +34,12 @@ type SyncAnalysis struct {
 
 	// TrunkChangeID is the change ID of the current trunk commit
 	TrunkChangeID string
+
+	// Remote is the selected git remote.
+	Remote string
+
+	// RebaseRoots are independent stack roots that are not based on remote trunk.
+	RebaseRoots []string
 
 	// Warnings are non-fatal issues discovered during analysis
 	Warnings []string
@@ -63,6 +70,10 @@ type MergedBookmark struct {
 
 	// MergedBy is the username who merged the PR
 	MergedBy string
+
+	// InTrunk means the change is already an ancestor of remote trunk. In that
+	// case sync deletes only the bookmark instead of abandoning immutable history.
+	InTrunk bool
 }
 
 // SyncPlan describes what actions will be taken during sync.
@@ -73,6 +84,9 @@ type SyncPlan struct {
 	// ToAbandon lists bookmarks to abandon (in order, bottom-up from trunk)
 	ToAbandon []string
 
+	// ToDelete lists merged bookmarks already incorporated in remote trunk.
+	ToDelete []string
+
 	// NeedsRebase indicates whether remaining bookmarks need rebasing
 	NeedsRebase bool
 
@@ -81,6 +95,13 @@ type SyncPlan struct {
 
 	// ToRebase lists bookmarks that will be rebased onto the new trunk
 	ToRebase []string
+
+	// RebaseRoots are the independent sources to rebase. Unlike ToRebase this
+	// list contains one entry per connected stack.
+	RebaseRoots []string
+
+	// Remote is used for the rebase target and all pushes.
+	Remote string
 
 	// Summary provides a human-readable summary of the plan
 	Summary SyncSummary
@@ -115,6 +136,9 @@ type SyncResult struct {
 	// Abandoned lists bookmarks that were successfully abandoned
 	Abandoned []string
 
+	// Deleted lists merged local bookmark names removed without rewriting history.
+	Deleted []string
+
 	// Rebased lists bookmarks that were successfully rebased
 	Rebased []string
 
@@ -136,6 +160,12 @@ type SyncResult struct {
 
 // SyncCallbacks allows callers to receive progress updates during sync.
 type SyncCallbacks struct {
+	// OnDelete is called before deleting a merged bookmark already in trunk.
+	OnDelete func(bookmark string)
+
+	// OnDeleteComplete is called after bookmark deletion.
+	OnDeleteComplete func(bookmark string, err error)
+
 	// OnPushStart is called when a bookmark push begins
 	OnPushStart func(bookmark string)
 
@@ -159,6 +189,9 @@ type SyncCallbacks struct {
 
 	// OnRebaseComplete is called when rebase completes
 	OnRebaseComplete func(err error)
+
+	// OnCheckpoint persists recovery state after each completed operation.
+	OnCheckpoint func(state *SyncState) error
 }
 
 // CanProceed returns true if the analysis found no blocking errors.
@@ -173,7 +206,7 @@ func (a *SyncAnalysis) HasMergedBookmarks() bool {
 
 // IsEmpty returns true if there's nothing to sync.
 func (p *SyncPlan) IsEmpty() bool {
-	return len(p.ToPush) == 0 && len(p.ToAbandon) == 0 && !p.NeedsRebase
+	return len(p.ToPush) == 0 && len(p.ToAbandon) == 0 && len(p.ToDelete) == 0 && !p.NeedsRebase
 }
 
 // HasBookmarksToPush returns true if any bookmarks need to be pushed.
@@ -201,4 +234,26 @@ type SyncState struct {
 
 	// Phase indicates the current phase (fetch, abandon, rebase)
 	Phase string `json:"phase"`
+
+	// StartOperationID is restored by sync --abort.
+	StartOperationID string `json:"start_operation_id"`
+
+	// Bookmark is the optional whole-stack scope selected by the user.
+	Bookmark string `json:"bookmark,omitempty"`
+
+	// Remote is the remote selected when sync started.
+	Remote string `json:"remote"`
+
+	// NoResubmit records whether GitHub PR refresh was disabled.
+	NoResubmit bool `json:"no_resubmit,omitempty"`
+}
+
+// OutOfOrderMergeError indicates a merged bookmark above an unmerged parent.
+type OutOfOrderMergeError struct {
+	Bookmark string
+	Parent   string
+}
+
+func (e *OutOfOrderMergeError) Error() string {
+	return "bookmark " + e.Bookmark + " was merged out of order (before " + e.Parent + ")"
 }

@@ -38,10 +38,8 @@ func CheckForConflicts(ctx context.Context, jj jjutils.JJFunctions) (*ConflictIn
 		HasConflicts: hasConflicts,
 	}
 
-	// If there are conflicts, we could potentially get the list of conflict files
-	// by parsing jj status output, but for now we just indicate that conflicts exist
 	if hasConflicts {
-		info.Files = []string{"(run 'jj status' to see conflicting files)"}
+		info.Files, _ = jj.GetConflictFiles(ctx)
 	}
 
 	return info, nil
@@ -62,41 +60,30 @@ func FormatConflictInstructions(info *ConflictInfo) string {
 	}
 
 	sb.WriteString("To resolve:\n")
-	sb.WriteString("  1. Edit conflicting files and resolve markers\n")
-	sb.WriteString("  2. Run: jj squash\n")
-	sb.WriteString("  3. Run: jj-stacked sync --continue\n")
+	sb.WriteString("  1. Run: jj resolve --list\n")
+	sb.WriteString("  2. Resolve each file with 'jj resolve <path>' or edit it directly\n")
+	sb.WriteString("  3. Confirm 'jj status' reports no conflicts\n")
+	sb.WriteString("  4. Run: jjk sync --continue\n")
 	sb.WriteString("\n")
 	sb.WriteString("To abort:\n")
-	sb.WriteString("  jj undo\n")
-	sb.WriteString("  jj-stacked sync --abort\n")
+	sb.WriteString("  jjk sync --abort\n")
 
 	return sb.String()
 }
 
 // FormatAbortInstructions returns instructions for aborting a sync.
 func FormatAbortInstructions() string {
-	return `To abort the current sync operation:
-
-  1. Run: jj undo
-     This will undo the rebase operation
-
-  2. Run: jj-stacked sync --abort
-     This will clear the sync state
-
-Note: The 'jj undo' command can be run multiple times to undo
-multiple operations if needed.
-`
+	return "The repository was restored to its pre-sync jj operation. Remote pushes, if any, cannot be undone automatically.\n"
 }
 
 // FormatContinueInstructions returns instructions for continuing a sync.
 func FormatContinueInstructions() string {
 	return `To continue the sync after resolving conflicts:
 
-  1. Edit conflicting files to resolve the conflicts
-  2. Run: jj squash
-     This incorporates your conflict resolution
-  3. Run: jj-stacked sync --continue
-     This resumes the sync operation
+  1. Run: jj resolve --list
+  2. Resolve each listed file and confirm jj status is conflict-free
+  3. Run: jjk sync --continue
+     This resumes at the first incomplete push or PR refresh step
 
 If conflicts remain, jj-stacked will pause again for resolution.
 `

@@ -38,10 +38,11 @@ See [Installation](#installation) for other install methods (Homebrew, manual do
 
 ## Requirements
 
-- Go 1.21+
-- Jujutsu 0.20.0+ (with `jj` in your PATH)
+- Jujutsu 0.27.0+ (with `jj` in your PATH)
 - GitHub account with `repo` scope token
 - A Jujutsu repository colocated with Git (`jj git init --colocate`)
+
+Go 1.24+ is only required when building from source or using `go install`.
 
 ## Installation
 
@@ -81,6 +82,34 @@ go install github.com/OSMorph/jj-stacked/cmd/jj-stacked@latest
 ```
 
 Note: This only installs `jj-stacked`. For the `jjk` alias, use another method.
+
+### Shell Completion
+
+Completion scripts are generated for the command name used to invoke them:
+
+```bash
+# Zsh
+jjk completion zsh > "${fpath[1]}/_jjk"
+
+# Bash (Homebrew)
+jjk completion bash > "$(brew --prefix)/etc/bash_completion.d/jjk"
+
+# Fish
+jjk completion fish > ~/.config/fish/completions/jjk.fish
+```
+
+`submit` and `sync` then complete valid jj user bookmarks dynamically. Generate a separate script with `jj-stacked completion <shell>` if you use the long command name.
+
+### Updating
+
+Release and installer users can update in place:
+
+```bash
+jjk update --check
+jjk update
+```
+
+Homebrew and `go install` builds are detected and print the appropriate package-manager command. Updates are checked only when explicitly requested.
 
 ## Authentication
 
@@ -190,22 +219,14 @@ jj-stacked submit user-api
 After the bottom PR merges on GitHub:
 
 ```bash
-# 1. Fetch the merged changes
-jj git fetch
+# Preview using current remote state
+jjk sync user-api --dry-run
 
-# 2. Abandon the merged bookmark's change (it's now in main)
-jj abandon user-model
-
-# 3. Rebase remaining stack onto updated main@origin
-jj rebase -d main@origin
-
-# 4. Re-submit to update remaining PRs
-jj-stacked submit user-api
+# Fetch, rebase, push, and refresh existing PR metadata
+jjk sync user-api
 ```
 
-> **Note:** Use `main@origin` (not just `main`) to rebase onto the remote trunk. After fetch, your local `main` bookmark may not automatically track the remote, which can cause "immutable commits" errors.
-
-This updates the remaining PRs so they now target main (or the next bookmark in the stack) instead of the merged branch.
+The bookmark selects its entire connected stack. If conflicts pause the operation, resolve them and run `jjk sync --continue`, or restore the pre-sync jj operation with `jjk sync --abort`.
 
 See [Usage Guide](docs/usage.md#merging-and-syncing-stacks) for more details on handling merges.
 
@@ -241,11 +262,13 @@ Submit a bookmark stack as pull requests.
 ### `jjk sync [bookmark]`
 
 Sync local stack with remote. This command:
-1. Fetches the latest changes from all remotes
-2. Rebases the stack onto the updated trunk (e.g., `main@origin`)
-3. Pushes bookmarks that are ahead of origin
 
-If a bookmark is specified, only that bookmark's stack will be synced. Otherwise, all stacks are synced.
+1. Fetches the selected remote
+2. Cleans up contiguous merged bookmarks
+3. Rebases each remaining stack root onto the remote trunk
+4. Pushes rewritten bookmarks and refreshes existing PR metadata
+
+If a bookmark is specified, its entire connected stack (including upstack bookmarks and branches) is synced. Otherwise, all stacks are synced.
 
 This is useful after merging PRs on GitHub - it will automatically rebase your remaining stack onto the updated main branch.
 
@@ -255,6 +278,8 @@ This is useful after merging PRs on GitHub - it will automatically rebase your r
 | `--continue` | Continue sync after resolving conflicts |
 | `--abort` | Abort sync in progress |
 | `--yes`, `-y` | Skip confirmation prompt |
+| `--remote <name>` | Fetch from and push to a specific remote |
+| `--no-resubmit` | Skip refreshing existing PR bases and stack comments |
 | `--debug` | Enable debug output |
 
 **Examples:**

@@ -40,7 +40,27 @@ func SaveSyncState(ctx context.Context, jj jjutils.JJFunctions, state *SyncState
 		return fmt.Errorf("failed to marshal state: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	temp, err := os.CreateTemp(filepath.Dir(path), ".jj-stacked-sync-*")
+	if err != nil {
+		return fmt.Errorf("failed to create state file: %w", err)
+	}
+	tempPath := temp.Name()
+	defer func() { _ = os.Remove(tempPath) }()
+	err = temp.Chmod(0o600)
+	if err == nil {
+		_, err = temp.Write(data)
+	}
+	if err == nil {
+		err = temp.Sync()
+	}
+	closeErr := temp.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Rename(tempPath, path)
+	}
+	if err != nil {
 		return fmt.Errorf("failed to write state file: %w", err)
 	}
 
@@ -98,11 +118,11 @@ func HasPendingSync(ctx context.Context, jj jjutils.JJFunctions) (bool, error) {
 }
 
 // CreateInitialState creates a new sync state for a starting sync operation.
-func CreateInitialState(plan *SyncPlan) *SyncState {
+func CreateInitialState(plan *SyncPlan, operationID, bookmark string, noResubmit bool) *SyncState {
 	var pendingSteps []string
-
-	// Add fetch as first step
-	pendingSteps = append(pendingSteps, "fetch")
+	for _, bm := range plan.ToDelete {
+		pendingSteps = append(pendingSteps, fmt.Sprintf("delete:%s", bm))
+	}
 
 	// Add abandon steps
 	for _, bm := range plan.ToAbandon {
@@ -110,20 +130,33 @@ func CreateInitialState(plan *SyncPlan) *SyncState {
 	}
 
 	// Add rebase step if needed
-	if plan.NeedsRebase {
-		pendingSteps = append(pendingSteps, "rebase")
+	for _, root := range plan.RebaseRoots {
+		pendingSteps = append(pendingSteps, fmt.Sprintf("rebase:%s", root))
+	}
+	for _, bm := range plan.ToPush {
+		pendingSteps = append(pendingSteps, fmt.Sprintf("push:%s", bm))
+	}
+	if !noResubmit {
+		pendingSteps = append(pendingSteps, "refresh-prs")
 	}
 
 	return &SyncState{
-		StartedAt:    time.Now(),
-		Plan:         plan,
-		PendingSteps: pendingSteps,
-		Phase:        "initialized",
+		StartedAt:        time.Now(),
+		Plan:             plan,
+		PendingSteps:     pendingSteps,
+		Phase:            "initialized",
+		StartOperationID: operationID,
+		Bookmark:         bookmark,
+		Remote:           plan.Remote,
+		NoResubmit:       noResubmit,
 	}
 }
 
 // MarkStepComplete moves a step from pending to completed.
 func (s *SyncState) MarkStepComplete(step string) {
+	if s.StepComplete(step) {
+		return
+	}
 	// Remove from pending
 	for i, pending := range s.PendingSteps {
 		if pending == step {
@@ -134,6 +167,16 @@ func (s *SyncState) MarkStepComplete(step string) {
 
 	// Add to completed
 	s.CompletedSteps = append(s.CompletedSteps, step)
+}
+
+// StepComplete reports whether a durable execution step is complete.
+func (s *SyncState) StepComplete(step string) bool {
+	for _, completed := range s.CompletedSteps {
+		if completed == step {
+			return true
+		}
+	}
+	return false
 }
 
 // SetPhase updates the current phase.

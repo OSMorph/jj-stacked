@@ -10,12 +10,18 @@ import (
 
 // ListBookmarks returns all local bookmarks.
 func (j *jjFunctions) ListBookmarks(ctx context.Context) ([]Bookmark, error) {
+	return j.ListBookmarksForRemote(ctx, "")
+}
+
+// ListBookmarksForRemote returns local bookmarks with tracking status for a
+// specific remote. An empty remote preserves the legacy any-remote behavior.
+func (j *jjFunctions) ListBookmarksForRemote(ctx context.Context, remoteFilter string) ([]Bookmark, error) {
 	bookmarks, err := j.listLocalBookmarks(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	remoteBookmarks, err := j.getRemoteBookmarks(ctx)
+	remoteBookmarks, err := j.getRemoteBookmarks(ctx, remoteFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +201,7 @@ type remoteBookmarkInfo struct {
 }
 
 // getRemoteBookmarks returns a map of bookmark name -> remote info from remote bookmarks.
-func (j *jjFunctions) getRemoteBookmarks(ctx context.Context) (map[string]remoteBookmarkInfo, error) {
+func (j *jjFunctions) getRemoteBookmarks(ctx context.Context, remoteFilter string) (map[string]remoteBookmarkInfo, error) {
 	// Use heads(remote_bookmarks()) to get the current positions of remote bookmarks
 	entries, err := j.GetLog(ctx, "heads(remote_bookmarks())", 0)
 	if err != nil {
@@ -212,6 +218,9 @@ func (j *jjFunctions) getRemoteBookmarks(ctx context.Context) (map[string]remote
 			}
 			name := cleanBookmarkMarkers(parts[0])
 			remote := cleanBookmarkMarkers(parts[1])
+			if remoteFilter != "" && remote != remoteFilter {
+				continue
+			}
 			// Store the latest (heads) entry for each remote bookmark
 			result[name] = remoteBookmarkInfo{
 				CommitID: entries[i].CommitID,

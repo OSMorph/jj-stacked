@@ -117,6 +117,16 @@ func TestBookmark_NeedsPush(t *testing.T) {
 	}
 }
 
+func TestBookmark_NeedsPushTo(t *testing.T) {
+	bm := Bookmark{HasRemote: true, IsSynced: true, RemoteName: "origin"}
+	if bm.NeedsPushTo("origin") {
+		t.Fatal("synced origin bookmark should not need push")
+	}
+	if !bm.NeedsPushTo("upstream") {
+		t.Fatal("bookmark tracked on another remote should need push")
+	}
+}
+
 func TestBranchStack_TopBookmark(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -265,6 +275,7 @@ func TestChangeGraph_Methods(t *testing.T) {
 		stack := graph.GetStackUpTo("feature-a")
 		if stack == nil {
 			t.Fatal("GetStackUpTo should return a stack for feature-a")
+			return
 		}
 		if len(stack.Segments) != 1 {
 			t.Errorf("GetStackUpTo(feature-a) should have 1 segment, got %d", len(stack.Segments))
@@ -273,9 +284,33 @@ func TestChangeGraph_Methods(t *testing.T) {
 		stack = graph.GetStackUpTo("feature-b")
 		if stack == nil {
 			t.Fatal("GetStackUpTo should return a stack for feature-b")
+			return
 		}
 		if len(stack.Segments) != 2 {
 			t.Errorf("GetStackUpTo(feature-b) should have 2 segments, got %d", len(stack.Segments))
 		}
 	})
+}
+
+func TestChangeGraph_GetConnectedBookmarksIncludesBranches(t *testing.T) {
+	graph := NewChangeGraph()
+	for _, name := range []string{"a", "b", "c", "d"} {
+		graph.Bookmarks[name] = Bookmark{Name: name}
+	}
+	graph.ChildToParent["b"] = "a"
+	graph.ChildToParent["c"] = "b"
+	graph.ChildToParent["d"] = "a"
+	graph.ParentToChildren["a"] = []string{"d", "b"}
+	graph.ParentToChildren["b"] = []string{"c"}
+
+	want := []string{"a", "b", "d", "c"}
+	got := graph.GetConnectedBookmarks("b")
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
 }

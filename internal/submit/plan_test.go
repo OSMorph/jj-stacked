@@ -13,6 +13,7 @@ type fakeGitHubClient struct {
 	comments  map[int][]*github.Comment
 	branches  map[string]bool
 	userLogin string
+	prsByHead map[string]*github.PullRequest
 }
 
 func (f *fakeGitHubClient) GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error) {
@@ -28,7 +29,34 @@ func (f *fakeGitHubClient) ListOpenPullRequests(ctx context.Context, owner, repo
 	return f.openPRs, nil
 }
 func (f *fakeGitHubClient) FindPRByHead(ctx context.Context, owner, repo, head string) (*github.PullRequest, error) {
-	return nil, nil
+	return f.prsByHead[head], nil
+}
+
+func TestCreatePRRefreshPlanNeverCreatesOrPushes(t *testing.T) {
+	analysis := &AnalysisResult{TargetBookmark: "b", Stack: []StackBookmark{
+		{Bookmark: jjutils.Bookmark{Name: "a"}, NeedsPush: true},
+		{Bookmark: jjutils.Bookmark{Name: "b"}, NeedsPush: true},
+	}}
+	client := &fakeGitHubClient{
+		prsByHead: map[string]*github.PullRequest{
+			"a": {Number: 1, Head: "a", Base: "old-base"},
+		},
+		comments: map[int][]*github.Comment{}, branches: map[string]bool{},
+	}
+	plan, err := CreatePRRefreshPlan(context.Background(), analysis, &PlanningDeps{
+		GitHub: client, Owner: "o", Repo: "r", Remote: "origin", DefaultBranch: "main",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range plan.Actions {
+		if action.Type() == ActionPush || action.Type() == ActionCreatePR || action.Type() == ActionClosePR {
+			t.Fatalf("refresh plan contains forbidden action %s", action.Type())
+		}
+	}
+	if len(plan.Actions) != 2 { // update a's base and refresh a's comment
+		t.Fatalf("refresh actions = %d, want 2", len(plan.Actions))
+	}
 }
 func (f *fakeGitHubClient) FindPRByHeadAllStates(ctx context.Context, owner, repo, head string) (*github.PullRequest, error) {
 	return nil, nil

@@ -232,6 +232,49 @@ func TestIntegration_SimpleStack(t *testing.T) {
 	}
 }
 
+func TestIntegration_OperationCheckpointRestore(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	repo := setupTestRepo(t)
+	defer repo.cleanup()
+	ctx := context.Background()
+	jj := jjutils.NewJJFunctions(repo.exec, "jj")
+
+	repo.createChange(t, "Checkpointed change")
+	repo.createBookmark(t, "checkpoint-test")
+	opID, err := jj.GetOperationID(ctx)
+	if err != nil {
+		t.Fatalf("GetOperationID failed: %v", err)
+	}
+	if err := jj.Abandon(ctx, "checkpoint-test"); err != nil {
+		t.Fatalf("Abandon failed: %v", err)
+	}
+	if err := jj.RestoreOperation(ctx, opID); err != nil {
+		t.Fatalf("RestoreOperation failed: %v", err)
+	}
+	bookmarks, err := jj.ListBookmarks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, bookmark := range bookmarks {
+		if bookmark.Name == "checkpoint-test" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("checkpoint-test bookmark was not restored")
+	}
+	files, err := jj.GetConflictFiles(ctx)
+	if err != nil {
+		t.Fatalf("GetConflictFiles failed: %v", err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("unexpected conflict files: %v", files)
+	}
+}
+
 // TestIntegration_MultipleStacks tests building a graph with multiple independent stacks.
 func TestIntegration_MultipleStacks(t *testing.T) {
 	if testing.Short() {

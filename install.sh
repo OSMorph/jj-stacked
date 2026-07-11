@@ -49,10 +49,12 @@ error() {
 while [[ $# -gt 0 ]]; do
     case $1 in
         --version)
+            [[ $# -ge 2 && -n "${2:-}" ]] || error "--version requires a value"
             VERSION="$2"
             shift 2
             ;;
         --prefix)
+            [[ $# -ge 2 && -n "${2:-}" ]] || error "--prefix requires a value"
             INSTALL_DIR="$2/bin"
             shift 2
             ;;
@@ -147,11 +149,10 @@ verify_checksum() {
     filename=$(basename "$file")
 
     local expected
-    expected=$(grep "$filename" "$checksums_file" | awk '{print $1}')
+    expected=$(awk -v filename="$filename" '{ candidate=$NF; sub(/^\*/, "", candidate); if (candidate == filename) { print $1; exit } }' "$checksums_file")
 
     if [ -z "$expected" ]; then
-        warn "Checksum not found for $filename, skipping verification"
-        return 0
+        error "Checksum not found for $filename"
     fi
 
     local actual
@@ -160,8 +161,7 @@ verify_checksum() {
     elif command -v shasum &> /dev/null; then
         actual=$(shasum -a 256 "$file" | awk '{print $1}')
     else
-        warn "Neither sha256sum nor shasum found, skipping checksum verification"
-        return 0
+        error "Neither sha256sum nor shasum found; cannot verify the download"
     fi
 
     if [ "$expected" != "$actual" ]; then
@@ -225,8 +225,8 @@ main() {
 
     # Install binaries
     info "Installing to ${INSTALL_DIR}..."
-    mv "${tmpdir}/jj-stacked" "$INSTALL_DIR/"
-    mv "${tmpdir}/jjk" "$INSTALL_DIR/"
+    install -m 0755 "${tmpdir}/jj-stacked" "$INSTALL_DIR/jj-stacked"
+    install -m 0755 "${tmpdir}/jjk" "$INSTALL_DIR/jjk"
     chmod +x "${INSTALL_DIR}/jj-stacked" "${INSTALL_DIR}/jjk"
 
     echo ""

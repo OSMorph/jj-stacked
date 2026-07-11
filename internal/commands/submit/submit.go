@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/OSMorph/jj-stacked/internal/cmdexec"
+	completioncmd "github.com/OSMorph/jj-stacked/internal/commands/completion"
 	apperrors "github.com/OSMorph/jj-stacked/internal/errors"
 	"github.com/OSMorph/jj-stacked/internal/jjutils"
 	"github.com/OSMorph/jj-stacked/internal/logger"
@@ -62,7 +63,8 @@ PREREQUISITES:
   • GitHub authentication configured (run 'jj-stacked auth test')
   • Changes committed to bookmarks (not just working copy)
   • Bookmarks should be in a linear stack from trunk`,
-		Args: cobra.ExactArgs(1),
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completioncmd.BookmarkValidArgsFunction,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSubmit(cmd.Context(), args[0], opts)
 		},

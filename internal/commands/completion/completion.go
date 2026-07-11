@@ -44,7 +44,9 @@ PowerShell:
   PS> jjk completion powershell > jjk.ps1
   # and source this file from your PowerShell profile.
 
-Note: Both 'jj-stacked' and 'jjk' commands use the same completions.
+Generate the script using the command name you want to complete. For example,
+'jjk completion zsh' registers jjk, while 'jj-stacked completion zsh' registers
+jj-stacked.
 `,
 		DisableFlagsInUseLine: true,
 		ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},

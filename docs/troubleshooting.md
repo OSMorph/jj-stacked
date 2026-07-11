@@ -186,7 +186,7 @@ jj git init --colocate
 
 **Symptom:** Warning about fetch failure when running `jj-stacked`.
 
-**This is usually non-fatal.** jj-stacked continues with local state.
+For `jj-stacked analyze`, this is usually non-fatal and analysis can continue with local state. For `jjk sync`, fetch failure is intentionally blocking because planning against stale remote state could rewrite or push the wrong stack.
 
 **Possible causes:**
 - Network connectivity issues

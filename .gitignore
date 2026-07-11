@@ -1,5 +1,7 @@
 # Binaries
 ./jj-stacked
+./jjk
+./jjs
 *.exe
 *.exe~
 *.dll

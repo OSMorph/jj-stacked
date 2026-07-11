@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/OSMorph/jj-stacked/internal/github"
 	"github.com/OSMorph/jj-stacked/internal/jjutils"
@@ -45,7 +46,10 @@ func AnalyzeSyncWithOptions(
 	owner, repo string,
 	opts AnalyzeOptions,
 ) (*SyncAnalysis, error) {
-	analysis := &SyncAnalysis{}
+	analysis := &SyncAnalysis{Remote: opts.Remote}
+	if analysis.Remote == "" {
+		analysis.Remote = "origin"
+	}
 
 	// Step 1: Get trunk info
 	trunkInfo, err := jj.GetTrunkInfo(ctx)
@@ -54,6 +58,7 @@ func AnalyzeSyncWithOptions(
 	}
 	analysis.TrunkBranch = trunkInfo.BranchName
 	analysis.TrunkChangeID = trunkInfo.ChangeID
+	target := fmt.Sprintf("%s@%s", analysis.TrunkBranch, analysis.Remote)
 
 	// Step 2: Get user bookmarks
 	allBookmarks, err := jj.ListUserBookmarks(ctx)
@@ -61,9 +66,20 @@ func AnalyzeSyncWithOptions(
 		return nil, fmt.Errorf("failed to list user bookmarks: %w", err)
 	}
 
-	if len(allBookmarks) == 0 {
-		// Nothing to sync
-		return analysis, nil
+	remoteBookmarks, err := jj.ListBookmarksForRemote(ctx, analysis.Remote)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect bookmarks for remote %s: %w", analysis.Remote, err)
+	}
+	remoteStatus := make(map[string]jjutils.Bookmark, len(remoteBookmarks))
+	for _, bm := range remoteBookmarks {
+		remoteStatus[bm.Name] = bm
+	}
+	for i := range allBookmarks {
+		if status, ok := remoteStatus[allBookmarks[i].Name]; ok {
+			allBookmarks[i].HasRemote = status.HasRemote
+			allBookmarks[i].RemoteName = status.RemoteName
+			allBookmarks[i].IsSynced = status.IsSynced
+		}
 	}
 
 	// Step 3: Build the change graph to understand stack structure
@@ -72,64 +88,127 @@ func AnalyzeSyncWithOptions(
 		return nil, fmt.Errorf("failed to build change graph: %w", err)
 	}
 
-	// Step 3.5: Filter bookmarks if a specific bookmark was requested
-	var bookmarks []jjutils.Bookmark
+	// Step 3.5: Select either the whole connected stack or every stack.
+	var bookmarkNames []string
 	if opts.Bookmark != "" {
-		stack := graph.GetStackUpTo(opts.Bookmark)
-		if stack == nil {
-			return nil, fmt.Errorf("bookmark %q not found in any stack", opts.Bookmark)
-		}
-
-		// Build a set of bookmark names in this stack
-		stackBookmarks := make(map[string]bool)
-		for _, seg := range stack.Segments {
-			stackBookmarks[seg.Bookmark.Name] = true
-		}
-
-		// Filter to only bookmarks in this stack
-		for _, bm := range allBookmarks {
-			if stackBookmarks[bm.Name] {
-				bookmarks = append(bookmarks, bm)
+		bookmarkNames = graph.GetConnectedBookmarks(opts.Bookmark)
+		if len(bookmarkNames) == 0 {
+			if _, exists := remoteStatus[opts.Bookmark]; !exists {
+				return nil, fmt.Errorf("bookmark %q not found in any stack", opts.Bookmark)
 			}
 		}
-
-		if len(bookmarks) == 0 {
-			return analysis, nil
-		}
 	} else {
-		bookmarks = allBookmarks
+		roots := append([]string(nil), graph.Roots...)
+		sort.Strings(roots)
+		seen := make(map[string]bool)
+		for _, root := range roots {
+			for _, name := range graph.GetConnectedBookmarks(root) {
+				if !seen[name] {
+					seen[name] = true
+					bookmarkNames = append(bookmarkNames, name)
+				}
+			}
+		}
+	}
+
+	byName := make(map[string]jjutils.Bookmark, len(allBookmarks))
+	for _, bm := range allBookmarks {
+		byName[bm.Name] = bm
+	}
+	bookmarks := make([]jjutils.Bookmark, 0, len(bookmarkNames))
+	for _, name := range bookmarkNames {
+		if bm, ok := byName[name]; ok {
+			bookmarks = append(bookmarks, bm)
+		}
+	}
+
+	// Merged bookmarks whose commits are already in trunk are intentionally
+	// excluded by ListUserBookmarks. Include them for cleanup, while preserving
+	// selected-stack scope by requiring ancestry with the selected bookmark.
+	detectionBookmarks := append([]jjutils.Bookmark(nil), bookmarks...)
+	detected := make(map[string]bool, len(detectionBookmarks))
+	for _, bm := range detectionBookmarks {
+		detected[bm.Name] = true
+	}
+	var anchor jjutils.Bookmark
+	if opts.Bookmark != "" {
+		anchor = remoteStatus[opts.Bookmark]
+	}
+	for _, candidate := range remoteBookmarks {
+		if detected[candidate.Name] || candidate.Name == "main" || candidate.Name == "master" || candidate.Name == "trunk" {
+			continue
+		}
+		include := opts.Bookmark == ""
+		if !include && anchor.ChangeID != "" {
+			ancestor, ancestorErr := jj.IsAncestor(ctx, candidate.ChangeID, anchor.ChangeID)
+			descendant, descendantErr := jj.IsAncestor(ctx, anchor.ChangeID, candidate.ChangeID)
+			if ancestorErr != nil || descendantErr != nil {
+				analysis.Warnings = append(analysis.Warnings, fmt.Sprintf("could not determine whether bookmark %s belongs to selected stack", candidate.Name))
+				continue
+			}
+			include = ancestor || descendant
+		}
+		if include {
+			detectionBookmarks = append(detectionBookmarks, candidate)
+			detected[candidate.Name] = true
+		}
 	}
 
 	// Check which bookmarks need to be pushed (ahead of origin)
 	for _, bm := range bookmarks {
-		if bm.NeedsPush() {
+		if bm.NeedsPushTo(analysis.Remote) {
 			analysis.BookmarksNeedingPush = append(analysis.BookmarksNeedingPush, bm.Name)
 		}
 	}
 
 	// Step 4: Detect which bookmarks have merged PRs
-	mergedBookmarks, detectErrors := DetectMergedBookmarks(ctx, bookmarks, gh, owner, repo)
+	mergedBookmarks, detectErrors := DetectMergedBookmarks(ctx, detectionBookmarks, gh, owner, repo)
 	for _, e := range detectErrors {
 		analysis.Warnings = append(analysis.Warnings, e.Error())
 	}
-
-	if len(mergedBookmarks) == 0 {
-		// No merged PRs found
-		for _, bm := range bookmarks {
-			analysis.RemainingBookmarks = append(analysis.RemainingBookmarks, bm.Name)
+	for i := range mergedBookmarks {
+		inTrunk, err := jj.IsAncestor(ctx, mergedBookmarks[i].ChangeID, target)
+		if err != nil {
+			analysis.Warnings = append(analysis.Warnings, fmt.Sprintf("could not determine whether merged bookmark %s is already in trunk: %v", mergedBookmarks[i].Name, err))
+			continue
 		}
-		return analysis, nil
+		mergedBookmarks[i].InTrunk = inTrunk
 	}
 
 	// Step 5: Filter to only contiguous merged bookmarks from bottom of stack
-	contiguousMerged, gapWarnings := FilterMergedFromBottom(mergedBookmarks, graph)
-	analysis.Warnings = append(analysis.Warnings, gapWarnings...)
+	contiguousMerged, gapErrors := FilterMergedFromBottom(mergedBookmarks, graph)
+	analysis.Errors = append(analysis.Errors, gapErrors...)
 	analysis.MergedBookmarks = contiguousMerged
 
 	// Step 6: Determine remaining bookmarks
 	analysis.RemainingBookmarks = GetRemainingBookmarks(bookmarks, contiguousMerged)
 
-	// Step 7: Check for working copy conflicts
+	// Step 7: Identify independent remaining roots and whether remote trunk is
+	// already in their ancestry. Only those roots need rebasing.
+	remainingSet := make(map[string]bool, len(analysis.RemainingBookmarks))
+	for _, name := range analysis.RemainingBookmarks {
+		remainingSet[name] = true
+	}
+	for _, name := range analysis.RemainingBookmarks {
+		parent := graph.ChildToParent[name]
+		if parent != "" && remainingSet[parent] {
+			continue
+		}
+		bm, ok := byName[name]
+		if !ok {
+			continue
+		}
+		basedOnTrunk, err := jj.IsAncestor(ctx, target, bm.ChangeID)
+		if err != nil {
+			analysis.Errors = append(analysis.Errors, fmt.Errorf("check whether %s is based on %s: %w", name, target, err))
+			continue
+		}
+		if !basedOnTrunk || len(contiguousMerged) > 0 {
+			analysis.RebaseRoots = append(analysis.RebaseRoots, name)
+		}
+	}
+
+	// Step 8: Check for repository conflicts
 	hasConflicts, err := jj.HasConflicts(ctx)
 	if err != nil {
 		analysis.Warnings = append(analysis.Warnings, fmt.Sprintf("could not check for conflicts: %v", err))
@@ -144,18 +223,5 @@ func AnalyzeSyncWithOptions(
 // ValidateAnalysis checks if the analysis result is valid for proceeding with sync.
 // Returns a list of validation errors if the analysis is not valid.
 func ValidateAnalysis(analysis *SyncAnalysis) []error {
-	var errors []error
-
-	// Check for blocking errors from analysis
-	errors = append(errors, analysis.Errors...)
-
-	// Check for out-of-order merges (these are in warnings)
-	for _, warning := range analysis.Warnings {
-		// Out-of-order merges are blocking errors
-		if warning != "" && warning[0] == 'b' { // "bookmark X was merged out of order"
-			errors = append(errors, fmt.Errorf("%s", warning))
-		}
-	}
-
-	return errors
+	return append([]error(nil), analysis.Errors...)
 }

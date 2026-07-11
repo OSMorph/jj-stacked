@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        go-version: ["1.23", "1.24"]
+        go-version: ["1.24", "1.26"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +45,7 @@ jobs:
 
       - uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.64
+          version: v2.12.2
 
   security:
     runs-on: ubuntu-latest
@@ -61,3 +61,25 @@ jobs:
 
       - name: Run govulncheck
         run: govulncheck ./...
+
+  release-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+
+      - name: Verify release archives
+        run: |
+          test "$(find dist -type f -name 'jj-stacked_*_darwin_arm64.tar.gz' | wc -l)" -eq 1
+          archive="$(find dist -type f -name 'jj-stacked_*_darwin_arm64.tar.gz')"
+          tar -tzf "$archive" | grep -qx 'jj-stacked'
+          tar -tzf "$archive" | grep -qx 'jjk'
+          test -f dist/checksums.txt

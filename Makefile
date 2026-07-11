@@ -8,20 +8,23 @@ LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 BINARY := jj-stacked
 ALIAS := jjk
 CMD_PATH := ./cmd/jj-stacked
-INSTALL_DIR := $(shell go env GOPATH)/bin
+BUILD_DIR ?= bin
+PREFIX ?= $(HOME)/.local
+INSTALL_DIR ?= $(PREFIX)/bin
 
-.PHONY: build build-all test lint fmt install uninstall clean all check
+.PHONY: build build-all test lint fmt fmt-check install uninstall clean all check
 
 # Default target
 all: build
 
 # Build the primary binary with version embedded
 build:
-	go build $(LDFLAGS) -o $(BINARY) $(CMD_PATH)
+	mkdir -p $(BUILD_DIR)
+	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY) $(CMD_PATH)
 
-# Build both jj-stacked and jjk binaries
+# Build jj-stacked and create the jjk alias
 build-all: build
-	cp $(BINARY) $(ALIAS)
+	ln -sf $(BINARY) $(BUILD_DIR)/$(ALIAS)
 
 # Run tests with race detector
 test:
@@ -33,12 +36,16 @@ lint:
 
 # Format code
 fmt:
-	go fmt ./...
-	goimports -w .
+	gofmt -w $$(find . -name '*.go' -not -path './vendor/*')
 
-# Install both binaries to GOPATH/bin
+# Verify formatting without rewriting the worktree.
+fmt-check:
+	@test -z "$$(gofmt -l $$(find . -name '*.go' -not -path './vendor/*'))"
+
+# Install both command names to INSTALL_DIR
 install: build
-	cp $(BINARY) $(INSTALL_DIR)/$(BINARY)
+	mkdir -p $(INSTALL_DIR)
+	cp $(BUILD_DIR)/$(BINARY) $(INSTALL_DIR)/$(BINARY)
 	ln -sf $(INSTALL_DIR)/$(BINARY) $(INSTALL_DIR)/$(ALIAS)
 	@echo "Installed $(BINARY) and $(ALIAS) to $(INSTALL_DIR)"
 
@@ -50,8 +57,8 @@ uninstall:
 
 # Clean build artifacts
 clean:
-	rm -f $(BINARY) $(ALIAS)
+	rm -rf $(BUILD_DIR)
 	go clean ./...
 
 # Run all checks (useful for CI)
-check: fmt lint test build
+check: fmt-check lint test build

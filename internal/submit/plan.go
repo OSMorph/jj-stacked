@@ -164,6 +164,34 @@ func CreateSubmissionPlan(
 	return plan, nil
 }
 
+// CreatePRRefreshPlan plans only idempotent updates to existing PR bases and
+// stack comments. It never pushes, creates, or closes pull requests.
+func CreatePRRefreshPlan(
+	ctx context.Context,
+	analysis *AnalysisResult,
+	deps *PlanningDeps,
+	callbacks *PlanningCallbacks,
+) (*SubmissionPlan, error) {
+	full, err := CreateSubmissionPlan(ctx, analysis, deps, callbacks)
+	if err != nil {
+		return nil, err
+	}
+	refresh := &SubmissionPlan{ExistingPRs: full.ExistingPRs}
+	for _, action := range full.Actions {
+		switch typed := action.(type) {
+		case *UpdateBaseAction:
+			refresh.Actions = append(refresh.Actions, typed)
+			refresh.Summary.PRsToUpdate++
+		case *SyncCommentAction:
+			if typed.PRNumber > 0 {
+				refresh.Actions = append(refresh.Actions, typed)
+				refresh.Summary.CommentsToSync++
+			}
+		}
+	}
+	return refresh, nil
+}
+
 // buildStackEntries creates github.StackEntry slice from analysis and PR info.
 func buildStackEntries(analysis *AnalysisResult, prInfo map[string]*github.PullRequest) []github.StackEntry {
 	entries := make([]github.StackEntry, len(analysis.Stack))

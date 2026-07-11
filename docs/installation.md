@@ -6,16 +6,17 @@ This guide covers all methods to install jj-stacked.
 
 Before installing jj-stacked, ensure you have:
 
-- **Go 1.21+** - Required for installation from source
-- **Jujutsu 0.20.0+** - The `jj` command must be in your PATH
+- **Jujutsu 0.27.0+** - The `jj` command must be in your PATH
 - **Git** - Required for the colocated workflow
 - **GitHub account** - With a personal access token (repo scope)
+
+Go 1.24+ is required only for source builds and `go install`. Prebuilt releases and Homebrew do not require Go.
 
 ### Verify Jujutsu Installation
 
 ```bash
 jj --version
-# Should output: jj 0.20.0 or higher
+# Should output: jj 0.27.0 or higher
 ```
 
 If you don't have Jujutsu installed, see the [Jujutsu installation guide](https://martinvonz.github.io/jj/latest/install-and-setup/).
@@ -42,23 +43,11 @@ brew upgrade jj-stacked
 
 ### From Releases (Recommended)
 
-Download the latest release for your platform from GitHub Releases:
+Download the latest release for your platform from [GitHub Releases](https://github.com/OSMorph/jj-stacked/releases/latest). Release asset names include the version, for example `jj-stacked_2.4.3_darwin_arm64.tar.gz`; do not use the old versionless URLs.
 
 ```bash
-# macOS Apple Silicon
-curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_darwin_arm64.tar.gz | tar xz
-
-# macOS Intel
-curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_darwin_amd64.tar.gz | tar xz
-
-# Linux x86_64
-curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_linux_amd64.tar.gz | tar xz
-
-# Linux ARM64
-curl -sL https://github.com/OSMorph/jj-stacked/releases/latest/download/jj-stacked_linux_arm64.tar.gz | tar xz
-
-# Then move to your PATH
-sudo mv jj-stacked jjk /usr/local/bin/
+# The verified installer selects the current version and platform automatically
+curl -sSL https://raw.githubusercontent.com/OSMorph/jj-stacked/main/install.sh | bash
 ```
 
 ### Using go install
@@ -99,18 +88,24 @@ cd jj-stacked
 # Build
 make build
 
+# Verify the Makefile build
+./bin/jj-stacked --version
+
 # Or manually
 go build -o jj-stacked ./cmd/jj-stacked
 
-# Verify
+# Verify the manual build
 ./jj-stacked --version
 ```
 
 Optionally install to your PATH:
 
 ```bash
-# Install both jj-stacked and jjk to ~/go/bin
+# Install both jj-stacked and jjk to ~/.local/bin
 make install
+
+# Or choose another prefix
+make install PREFIX="$HOME"
 
 # Or copy manually
 sudo cp jj-stacked /usr/local/bin/
@@ -206,6 +201,22 @@ jj-stacked auth test --host git.mycompany.com
 
 ## Upgrading
 
+### From a Release or the Installer
+
+```bash
+jjk update --check
+jjk update
+```
+
+`jjk update` verifies the release checksum before atomically replacing `jj-stacked` and `jjk`. Windows users receive the exact matching download link.
+
+### From Homebrew
+
+```bash
+brew update
+brew upgrade jj-stacked
+```
+
 ### From Go Install
 
 ```bash
@@ -225,6 +236,9 @@ make build
 Remove the binaries:
 
 ```bash
+# If installed with the recommended installer
+rm -f ~/.local/bin/jj-stacked ~/.local/bin/jjk
+
 # If installed via go install
 rm -f "$(go env GOPATH)/bin/jj-stacked" "$(go env GOPATH)/bin/jjk"
 
@@ -239,7 +253,13 @@ sudo rm -f /usr/local/bin/jj-stacked /usr/local/bin/jjk
 
 ### "command not found: jj-stacked" or "command not found: jjk"
 
-Ensure Go's bin directory is in your PATH:
+For the recommended installer, ensure `~/.local/bin` is in your PATH:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+For `go install`, ensure Go's bin directory is in your PATH:
 
 ```bash
 echo $PATH | grep -q go/bin && echo "OK" || echo "Add ~/go/bin to PATH"
@@ -253,7 +273,7 @@ export PATH="$HOME/go/bin:$PATH"
 
 ### "cannot find module"
 
-Ensure you have Go 1.21 or later:
+Ensure you have Go 1.24 or later:
 
 ```bash
 go version
