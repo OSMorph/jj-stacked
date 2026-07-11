@@ -48,6 +48,11 @@ func (b *Bookmark) NeedsPush() bool {
 	return !b.HasRemote || !b.IsSynced
 }
 
+// NeedsPushTo reports sync status for a specific remote.
+func (b *Bookmark) NeedsPushTo(remote string) bool {
+	return !b.HasRemote || b.RemoteName != remote || !b.IsSynced
+}
+
 // BookmarkSegment represents a contiguous section of changes between bookmarks.
 // AIDEV-NOTE: A segment contains all changes from one bookmark down to
 // either the parent bookmark or trunk.

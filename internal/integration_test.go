@@ -232,6 +232,78 @@ func TestIntegration_SimpleStack(t *testing.T) {
 	}
 }
 
+func TestIntegration_ChangeGraphHonorsExplicitBase(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	repo := setupTestRepo(t)
+	defer repo.cleanup()
+
+	repo.createChange(t, "base feature")
+	repo.createBookmark(t, "feature-base")
+	repo.createChange(t, "tip feature")
+	repo.createBookmark(t, "feature-tip")
+
+	jj := jjutils.NewJJFunctions(repo.exec, "jj")
+	graph, err := jj.BuildChangeGraphForBase(t.Context(), "feature-base")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := graph.Bookmarks["feature-base"]; ok {
+		t.Fatal("explicit base bookmark was included in the graph")
+	}
+	if _, ok := graph.Bookmarks["feature-tip"]; !ok {
+		t.Fatal("bookmark above explicit base was omitted from the graph")
+	}
+	if len(graph.Roots) != 1 || graph.Roots[0] != "feature-tip" {
+		t.Fatalf("roots = %v, want [feature-tip]", graph.Roots)
+	}
+}
+
+func TestIntegration_OperationCheckpointRestore(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	repo := setupTestRepo(t)
+	defer repo.cleanup()
+	ctx := context.Background()
+	jj := jjutils.NewJJFunctions(repo.exec, "jj")
+
+	repo.createChange(t, "Checkpointed change")
+	repo.createBookmark(t, "checkpoint-test")
+	opID, err := jj.GetOperationID(ctx)
+	if err != nil {
+		t.Fatalf("GetOperationID failed: %v", err)
+	}
+	if err := jj.Abandon(ctx, "checkpoint-test"); err != nil {
+		t.Fatalf("Abandon failed: %v", err)
+	}
+	if err := jj.RestoreOperation(ctx, opID); err != nil {
+		t.Fatalf("RestoreOperation failed: %v", err)
+	}
+	bookmarks, err := jj.ListBookmarks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, bookmark := range bookmarks {
+		if bookmark.Name == "checkpoint-test" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("checkpoint-test bookmark was not restored")
+	}
+	files, err := jj.GetConflictFiles(ctx)
+	if err != nil {
+		t.Fatalf("GetConflictFiles failed: %v", err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("unexpected conflict files: %v", files)
+	}
+}
+
 // TestIntegration_MultipleStacks tests building a graph with multiple independent stacks.
 func TestIntegration_MultipleStacks(t *testing.T) {
 	if testing.Short() {

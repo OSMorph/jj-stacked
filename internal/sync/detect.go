@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/OSMorph/jj-stacked/internal/github"
 	"github.com/OSMorph/jj-stacked/internal/jjutils"
@@ -72,47 +73,45 @@ func DetectMergedBookmarks(
 func FilterMergedFromBottom(
 	merged []MergedBookmark,
 	graph *jjutils.ChangeGraph,
-) (contiguousMerged []MergedBookmark, warnings []string) {
+) (contiguousMerged []MergedBookmark, errors []error) {
 	// Build a set of merged bookmark names for quick lookup
 	mergedSet := make(map[string]MergedBookmark)
 	for _, m := range merged {
 		mergedSet[m.Name] = m
 	}
 
-	// For each stack, find contiguous merged bookmarks from the root
-	for _, stack := range graph.Stacks {
-		for _, segment := range stack.Segments {
-			bmName := segment.Bookmark.Name
-
-			if m, isMerged := mergedSet[bmName]; isMerged {
-				// This bookmark is merged, add it to contiguous list
-				contiguousMerged = append(contiguousMerged, m)
-			} else {
-				// First non-merged bookmark - stop processing this stack
-				// Any merged bookmarks after this point are "gaps"
-				for i := len(stack.Segments) - 1; i >= 0; i-- {
-					laterBm := stack.Segments[i].Bookmark.Name
-					if _, isLaterMerged := mergedSet[laterBm]; isLaterMerged {
-						// Check if we haven't already added it
-						found := false
-						for _, cm := range contiguousMerged {
-							if cm.Name == laterBm {
-								found = true
-								break
-							}
-						}
-						if !found {
-							warnings = append(warnings,
-								fmt.Sprintf("bookmark %s was merged out of order (before %s)", laterBm, bmName))
-						}
-					}
-				}
+	// A merged bookmark is safe only if every bookmark ancestor is also merged.
+	// Checking only the immediate parent is insufficient: in A -> B -> C, C
+	// must remain blocked when A and C are merged but B is not.
+	for name, mergedBookmark := range mergedSet {
+		blocked := false
+		for parent := graph.ChildToParent[name]; parent != ""; parent = graph.ChildToParent[parent] {
+			if _, parentMerged := mergedSet[parent]; !parentMerged {
+				errors = append(errors, &OutOfOrderMergeError{Bookmark: name, Parent: parent})
+				blocked = true
 				break
 			}
 		}
+		if blocked {
+			continue
+		}
+		contiguousMerged = append(contiguousMerged, mergedBookmark)
 	}
+	sort.Slice(contiguousMerged, func(i, j int) bool {
+		return bookmarkDepth(graph, contiguousMerged[i].Name) < bookmarkDepth(graph, contiguousMerged[j].Name)
+	})
+	sort.Slice(errors, func(i, j int) bool { return errors[i].Error() < errors[j].Error() })
 
-	return contiguousMerged, warnings
+	return contiguousMerged, errors
+}
+
+func bookmarkDepth(graph *jjutils.ChangeGraph, name string) int {
+	depth := 0
+	for graph.ChildToParent[name] != "" {
+		depth++
+		name = graph.ChildToParent[name]
+	}
+	return depth
 }
 
 // GetRemainingBookmarks returns bookmarks that are not in the merged list.

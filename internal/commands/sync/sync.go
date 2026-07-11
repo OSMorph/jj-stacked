@@ -9,10 +9,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/OSMorph/jj-stacked/internal/cmdexec"
+	completioncmd "github.com/OSMorph/jj-stacked/internal/commands/completion"
 	apperrors "github.com/OSMorph/jj-stacked/internal/errors"
 	"github.com/OSMorph/jj-stacked/internal/jjutils"
 	"github.com/OSMorph/jj-stacked/internal/logger"
 	"github.com/OSMorph/jj-stacked/internal/repo"
+	submitpkg "github.com/OSMorph/jj-stacked/internal/submit"
 	"github.com/OSMorph/jj-stacked/internal/sync"
 )
 
@@ -25,6 +27,7 @@ type Options struct {
 	NoResubmit bool
 	Yes        bool
 	Debug      bool
+	Remote     string
 }
 
 // NewCommand creates the sync command.
@@ -37,12 +40,12 @@ func NewCommand() *cobra.Command {
 		Long: `Synchronize your local stack with the remote repository.
 
 This command performs the following steps:
-1. Fetches the latest changes from all remotes
+1. Fetches the latest changes from the selected remote
 2. Abandons any bookmarks whose PRs have been merged (if detected)
 3. Rebases the stack onto the updated trunk (e.g., main@origin)
-4. Pushes bookmarks that are ahead of origin
+4. Pushes bookmarks that are ahead of the selected remote
 
-If a bookmark is specified, only that bookmark's stack will be synced.
+If a bookmark is specified, its entire connected stack will be synced.
 Otherwise, all stacks are synced.
 
 EXAMPLES:
@@ -64,12 +67,19 @@ EXAMPLES:
   # Skip confirmation prompt
   jj-stacked sync --yes
 
+  # Use a non-origin remote
+  jj-stacked sync my-feature --remote upstream
+
 WORKFLOW:
   After merging PRs on GitHub, run this command to sync your local
   stack. It will fetch the latest trunk, rebase your stack onto it,
   and push the updated bookmarks.`,
-		Args: cobra.MaximumNArgs(1),
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: completioncmd.BookmarkValidArgsFunction,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 && (opts.Continue || opts.Abort) {
+				return fmt.Errorf("bookmark cannot be used with --continue or --abort")
+			}
 			if len(args) > 0 {
 				opts.Bookmark = args[0]
 			}
@@ -80,9 +90,11 @@ WORKFLOW:
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Show what would be done without making changes")
 	cmd.Flags().BoolVar(&opts.Continue, "continue", false, "Continue sync after resolving conflicts")
 	cmd.Flags().BoolVar(&opts.Abort, "abort", false, "Abort sync in progress")
-	cmd.Flags().BoolVar(&opts.NoResubmit, "no-resubmit", false, "Don't automatically re-submit remaining PRs")
+	cmd.Flags().BoolVar(&opts.NoResubmit, "no-resubmit", false, "Skip refreshing existing PR bases and stack comments")
 	cmd.Flags().BoolVarP(&opts.Yes, "yes", "y", false, "Skip confirmation prompt")
 	cmd.Flags().BoolVar(&opts.Debug, "debug", false, "Enable debug output for troubleshooting")
+	cmd.Flags().StringVar(&opts.Remote, "remote", "", "Remote to fetch from and push to (default: origin)")
+	cmd.MarkFlagsMutuallyExclusive("continue", "abort", "dry-run")
 
 	return cmd
 }
@@ -104,13 +116,13 @@ func runSync(ctx context.Context, opts *Options) error {
 
 	// Handle --continue
 	if opts.Continue {
-		return handleContinue(ctx, jj, opts, log)
+		return handleContinue(ctx, jj, log)
 	}
 
 	// Check for existing sync in progress
 	hasPending, err := sync.HasPendingSync(ctx, jj)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not check for pending sync: %v\n", err)
+		return fmt.Errorf("check for pending sync state: %w", err)
 	} else if hasPending {
 		fmt.Fprintf(os.Stderr, "Error: A sync operation is already in progress.\n")
 		fmt.Fprintf(os.Stderr, "Run 'jj-stacked sync --continue' to resume or 'jj-stacked sync --abort' to cancel.\n")
@@ -119,6 +131,7 @@ func runSync(ctx context.Context, opts *Options) error {
 
 	// Set up repo context
 	repoOpts := repo.RepoContextOptions{
+		Remote: opts.Remote,
 		Logger: log,
 	}
 
@@ -128,6 +141,16 @@ func runSync(ctx context.Context, opts *Options) error {
 		fmt.Fprintf(os.Stderr, "\nError: %s\n", apperrors.FormatErrorWithHint(err))
 		return fmt.Errorf("failed to initialize repository")
 	}
+	opts.Remote = repoCtx.Remote
+
+	// Fetch before analysis so merge detection, trunk ancestry, and push state
+	// are based on current remote-tracking bookmarks. Dry-run intentionally
+	// includes this fetch but performs no subsequent mutation.
+	fmt.Printf("Fetching from %s...\n", repoCtx.Remote)
+	if err := jj.Fetch(ctx, repoCtx.Remote); err != nil {
+		fmt.Fprintf(os.Stderr, "\nError: %s\n", apperrors.FormatErrorWithHint(err))
+		return fmt.Errorf("fetch failed")
+	}
 
 	// Phase 1: Analysis
 	if opts.Bookmark != "" {
@@ -136,7 +159,9 @@ func runSync(ctx context.Context, opts *Options) error {
 		fmt.Printf("Analyzing sync state...\n")
 	}
 	analysisOpts := sync.AnalyzeOptions{
-		Bookmark: opts.Bookmark,
+		Bookmark:    opts.Bookmark,
+		Remote:      repoCtx.Remote,
+		TrunkBranch: repoCtx.DefaultBranch,
 	}
 	analysis, err := sync.AnalyzeSyncWithOptions(ctx, jj, repoCtx.GitHub, repoCtx.Owner, repoCtx.Repo, analysisOpts)
 	if err != nil {
@@ -159,8 +184,8 @@ func runSync(ctx context.Context, opts *Options) error {
 	}
 
 	// Check if there's anything to sync
-	if !analysis.HasMergedBookmarks() && !analysis.HasBookmarksToPush() {
-		fmt.Printf("\nNo merged PRs found and no bookmarks need pushing. Stack is already up to date.\n")
+	if !analysis.HasMergedBookmarks() && !analysis.HasBookmarksToPush() && len(analysis.RebaseRoots) == 0 {
+		fmt.Printf("\nRemote fetched; stack is already up to date.\n")
 		return nil
 	}
 
@@ -177,7 +202,7 @@ func runSync(ctx context.Context, opts *Options) error {
 
 	// Dry run mode - show plan and exit
 	if opts.DryRun {
-		fmt.Printf("(dry-run mode - no changes made)\n")
+		fmt.Printf("(dry-run mode - remote tracking was fetched; no history, remote branches, or PRs were changed)\n")
 		return nil
 	}
 
@@ -195,12 +220,19 @@ func runSync(ctx context.Context, opts *Options) error {
 	fmt.Printf("\nExecuting sync...\n")
 
 	// Save state for potential recovery
-	state := sync.CreateInitialState(plan)
+	operationID, err := jj.GetOperationID(ctx)
+	if err != nil {
+		return fmt.Errorf("record pre-sync jj operation: %w", err)
+	}
+	state := sync.CreateInitialState(plan, operationID, opts.Bookmark, opts.NoResubmit)
 	if err := sync.SaveSyncState(ctx, jj, state); err != nil {
-		log.Debug("failed to save sync state", "error", err)
+		return fmt.Errorf("save sync recovery state before mutation: %w", err)
 	}
 
 	callbacks := &sync.SyncCallbacks{
+		OnCheckpoint: func(state *sync.SyncState) error {
+			return sync.SaveSyncState(ctx, jj, state)
+		},
 		OnPushStart: func(bookmark string) {
 			fmt.Printf("  Pushing %s...\n", bookmark)
 		},
@@ -209,14 +241,12 @@ func runSync(ctx context.Context, opts *Options) error {
 				fmt.Printf("    Failed: %v\n", err)
 			}
 		},
-		OnFetchStart: func() {
-			fmt.Printf("  Fetching from remotes...\n")
+		OnDelete: func(bookmark string) {
+			fmt.Printf("  Deleting merged bookmark %s (change already in trunk)...\n", bookmark)
 		},
-		OnFetchComplete: func(err error) {
+		OnDeleteComplete: func(bookmark string, err error) {
 			if err != nil {
-				fmt.Printf("  Fetch failed: %v\n", err)
-			} else {
-				fmt.Printf("  Fetch complete.\n")
+				fmt.Printf("    Failed: %v\n", err)
 			}
 		},
 		OnAbandon: func(bookmark string) {
@@ -237,14 +267,7 @@ func runSync(ctx context.Context, opts *Options) error {
 		},
 	}
 
-	result := sync.ExecuteSync(ctx, plan, jj, callbacks)
-
-	// Clear state on success
-	if result.Success {
-		if err := sync.ClearSyncState(ctx, jj); err != nil {
-			log.Debug("failed to clear sync state", "error", err)
-		}
-	}
+	result := sync.ExecuteSyncWithState(ctx, plan, state, jj, callbacks)
 
 	// Handle conflicts
 	if result.HasConflicts {
@@ -254,6 +277,24 @@ func runSync(ctx context.Context, opts *Options) error {
 		}
 		fmt.Printf("\n%s", sync.FormatConflictInstructions(conflictInfo))
 		return fmt.Errorf("sync paused due to conflicts")
+	}
+
+	if result.Success && !opts.NoResubmit {
+		if err := refreshExistingPRs(ctx, jj, repoCtx, opts.Bookmark, log); err != nil {
+			state.SetPhase("refresh-failed")
+			_ = sync.SaveSyncState(ctx, jj, state)
+			return fmt.Errorf("refresh existing pull requests: %w", err)
+		}
+		state.MarkStepComplete("refresh-prs")
+		if err := sync.SaveSyncState(ctx, jj, state); err != nil {
+			return fmt.Errorf("checkpoint completed pull request refresh: %w", err)
+		}
+	}
+
+	if result.Success {
+		if err := sync.ClearSyncState(ctx, jj); err != nil {
+			return fmt.Errorf("clear completed sync state: %w", err)
+		}
 	}
 
 	// Show result
@@ -278,19 +319,25 @@ func handleAbort(ctx context.Context, jj jjutils.JJFunctions) error {
 		return err
 	}
 
-	// Clear state
+	if state.StartOperationID == "" {
+		return fmt.Errorf("sync state has no recovery operation ID; refusing unsafe abort")
+	}
+	if err := jj.RestoreOperation(ctx, state.StartOperationID); err != nil {
+		return fmt.Errorf("restore pre-sync operation %s: %w", state.StartOperationID, err)
+	}
+
 	if err := sync.ClearSyncState(ctx, jj); err != nil {
 		fmt.Fprintf(os.Stderr, "Error clearing sync state: %v\n", err)
 		return err
 	}
 
-	fmt.Printf("Sync aborted.\n")
+	fmt.Printf("Sync aborted and local jj state restored.\n")
 	fmt.Printf("\n%s", sync.FormatAbortInstructions())
 
 	return nil
 }
 
-func handleContinue(ctx context.Context, jj jjutils.JJFunctions, _ *Options, log *logger.Logger) error {
+func handleContinue(ctx context.Context, jj jjutils.JJFunctions, log *logger.Logger) error {
 	state, err := sync.LoadSyncState(ctx, jj)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading sync state: %v\n", err)
@@ -302,12 +349,29 @@ func handleContinue(ctx context.Context, jj jjutils.JJFunctions, _ *Options, log
 		return err
 	}
 
-	// Continue with the remaining steps
 	fmt.Printf("Continuing sync...\n")
-
 	callbacks := &sync.SyncCallbacks{
+		OnCheckpoint: func(state *sync.SyncState) error {
+			return sync.SaveSyncState(ctx, jj, state)
+		},
+		OnPushStart: func(bookmark string) {
+			fmt.Printf("  Pushing %s...\n", bookmark)
+		},
+		OnPushComplete: func(bookmark string, err error) {
+			if err != nil {
+				fmt.Printf("    Failed: %v\n", err)
+			}
+		},
+		OnDelete: func(bookmark string) {
+			fmt.Printf("  Deleting merged bookmark %s (change already in trunk)...\n", bookmark)
+		},
+		OnDeleteComplete: func(bookmark string, err error) {
+			if err != nil {
+				fmt.Printf("    Failed: %v\n", err)
+			}
+		},
 		OnRebaseStart: func(bookmarks []string) {
-			fmt.Printf("  Completing rebase...\n")
+			fmt.Printf("  Resuming %d pending rebase root(s)...\n", len(bookmarks))
 		},
 		OnRebaseComplete: func(err error) {
 			if err != nil {
@@ -316,15 +380,7 @@ func handleContinue(ctx context.Context, jj jjutils.JJFunctions, _ *Options, log
 		},
 	}
 
-	// Re-execute remaining steps
-	result := sync.ExecuteSync(ctx, state.Plan, jj, callbacks)
-
-	// Clear state on success
-	if result.Success {
-		if err := sync.ClearSyncState(ctx, jj); err != nil {
-			log.Debug("failed to clear sync state", "error", err)
-		}
-	}
+	result := sync.ExecuteSyncWithState(ctx, state.Plan, state, jj, callbacks)
 
 	// Handle conflicts
 	if result.HasConflicts {
@@ -335,6 +391,26 @@ func handleContinue(ctx context.Context, jj jjutils.JJFunctions, _ *Options, log
 		fmt.Printf("\n%s", sync.FormatConflictInstructions(conflictInfo))
 		return fmt.Errorf("sync paused due to conflicts")
 	}
+	if result.Success && !state.NoResubmit && !state.StepComplete("refresh-prs") {
+		repoCtx, err := repo.NewRepoContext(ctx, repo.RepoContextOptions{Remote: state.Remote, Logger: log})
+		if err != nil {
+			return fmt.Errorf("initialize repository context: %w", err)
+		}
+		if err := refreshExistingPRs(ctx, jj, repoCtx, state.Bookmark, log); err != nil {
+			state.SetPhase("refresh-failed")
+			_ = sync.SaveSyncState(ctx, jj, state)
+			return fmt.Errorf("refresh existing pull requests: %w", err)
+		}
+		state.MarkStepComplete("refresh-prs")
+		if err := sync.SaveSyncState(ctx, jj, state); err != nil {
+			return err
+		}
+	}
+	if result.Success {
+		if err := sync.ClearSyncState(ctx, jj); err != nil {
+			return err
+		}
+	}
 
 	// Show result
 	fmt.Printf("\n%s\n", sync.FormatResult(result))
@@ -343,5 +419,68 @@ func handleContinue(ctx context.Context, jj jjutils.JJFunctions, _ *Options, log
 		return fmt.Errorf("sync failed")
 	}
 
+	return nil
+}
+
+func refreshExistingPRs(ctx context.Context, jj jjutils.JJFunctions, repoCtx *repo.RepoContext, bookmark string, log *logger.Logger) error {
+	graph, err := jj.BuildChangeGraphForBase(ctx, fmt.Sprintf("%s@%s", repoCtx.DefaultBranch, repoCtx.Remote))
+	if err != nil {
+		return err
+	}
+	var targets []string
+	if bookmark != "" {
+		component := graph.GetConnectedBookmarks(bookmark)
+		selected := make(map[string]bool, len(component))
+		for _, name := range component {
+			selected[name] = true
+		}
+		for _, name := range component {
+			leaf := true
+			for _, child := range graph.ParentToChildren[name] {
+				if selected[child] {
+					leaf = false
+					break
+				}
+			}
+			if leaf {
+				targets = append(targets, name)
+			}
+		}
+	} else {
+		targets = append(targets, graph.Leaves...)
+	}
+
+	currentUser, _ := repoCtx.GitHub.GetAuthenticatedUser(ctx)
+	for _, target := range targets {
+		analysis, err := submitpkg.AnalyzeSubmission(ctx, graph, target)
+		if err != nil || analysis.HasErrors() {
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("cannot refresh stack %s: %s", target, submitpkg.FormatAnalysisErrors(analysis))
+		}
+		deps := &submitpkg.PlanningDeps{
+			GitHub: repoCtx.GitHub, Owner: repoCtx.Owner, Repo: repoCtx.Repo,
+			Remote: repoCtx.Remote, DefaultBranch: repoCtx.DefaultBranch, CurrentUser: currentUser,
+		}
+		plan, err := submitpkg.CreatePRRefreshPlan(ctx, analysis, deps, nil)
+		if err != nil {
+			return err
+		}
+		if len(plan.Actions) == 0 {
+			continue
+		}
+		fmt.Printf("  Refreshing %d existing PR update(s) for %s...\n", len(plan.Actions), target)
+		result, err := submitpkg.ExecuteSubmissionPlan(ctx, plan, &submitpkg.ActionDeps{
+			JJ: jj, GitHub: repoCtx.GitHub, Owner: repoCtx.Owner, Repo: repoCtx.Repo, Remote: repoCtx.Remote,
+		}, nil)
+		if err != nil {
+			return err
+		}
+		if result.Summary.Failed > 0 {
+			return fmt.Errorf("%d PR refresh action(s) failed", result.Summary.Failed)
+		}
+		log.Debug("refreshed existing PR metadata", "stack", target, "actions", len(plan.Actions))
+	}
 	return nil
 }

@@ -303,6 +303,16 @@ func (j *jjFunctions) Abandon(ctx context.Context, revset string) error {
 	return nil
 }
 
+// DeleteBookmark removes a local bookmark without rewriting its target change.
+func (j *jjFunctions) DeleteBookmark(ctx context.Context, name string) error {
+	args := []string{"bookmark", "delete", name}
+	_, err := j.exec.Run(ctx, j.jjCmd(), args...)
+	if err != nil {
+		return &apperrors.JJError{Command: j.jjCmd(), Args: args, Err: err}
+	}
+	return nil
+}
+
 // Rebase rebases changes onto a new destination.
 // source is a revset identifying what to rebase.
 // destination is the new parent (typically trunk branch name or "trunk()").
@@ -322,9 +332,60 @@ func (j *jjFunctions) Rebase(ctx context.Context, source, destination string) er
 // HasConflicts checks if the working copy has conflicts.
 // Returns true if conflicts are present.
 func (j *jjFunctions) HasConflicts(ctx context.Context) (bool, error) {
-	output, err := j.exec.Run(ctx, j.jjCmd(), "log", "-r", "@", "--no-graph", "-T", `if(conflict, "true", "false")`)
+	output, err := j.exec.Run(ctx, j.jjCmd(), "log", "-r", "conflicts()", "--no-graph", "-T", `"true\n"`)
 	if err != nil {
 		return false, err
 	}
-	return strings.TrimSpace(output) == "true", nil
+	return strings.TrimSpace(output) != "", nil
+}
+
+// GetConflictFiles returns paths reported by jj resolve --list.
+func (j *jjFunctions) GetConflictFiles(ctx context.Context) ([]string, error) {
+	output, err := j.exec.Run(ctx, j.jjCmd(), "resolve", "--list")
+	if err != nil {
+		if strings.Contains(err.Error(), "No conflicts found") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var files []string
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			files = append(files, line)
+		}
+	}
+	return files, nil
+}
+
+// IsAncestor reports whether ancestor is in descendant's ancestry.
+func (j *jjFunctions) IsAncestor(ctx context.Context, ancestor, descendant string) (bool, error) {
+	revset := fmt.Sprintf("%s & ::%s", ancestor, descendant)
+	entries, err := j.GetLog(ctx, revset, 1)
+	if err != nil {
+		return false, err
+	}
+	return len(entries) > 0, nil
+}
+
+// GetOperationID returns the current jj operation ID.
+func (j *jjFunctions) GetOperationID(ctx context.Context) (string, error) {
+	output, err := j.exec.Run(ctx, j.jjCmd(), "op", "log", "--no-graph", "--limit", "1", "-T", `self.id() ++ "\n"`)
+	if err != nil {
+		return "", err
+	}
+	id := strings.TrimSpace(output)
+	if id == "" {
+		return "", fmt.Errorf("jj returned an empty operation ID")
+	}
+	return id, nil
+}
+
+// RestoreOperation restores repository state to an earlier jj operation.
+func (j *jjFunctions) RestoreOperation(ctx context.Context, operationID string) error {
+	args := []string{"op", "restore", operationID}
+	_, err := j.exec.Run(ctx, j.jjCmd(), args...)
+	if err != nil {
+		return &apperrors.JJError{Command: j.jjCmd(), Args: args, Err: err}
+	}
+	return nil
 }

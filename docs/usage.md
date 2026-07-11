@@ -88,14 +88,9 @@ This will:
 When the bottom PR merges:
 
 ```bash
-# Fetch the merged changes
-jj git fetch
-
-# Rebase your stack onto main@origin
-jj rebase -d main@origin
-
-# Re-submit to update remaining PRs
-jj-stacked submit user-tests
+# Preview and then sync the whole connected stack
+jjk sync user-tests --dry-run
+jjk sync user-tests
 ```
 
 ## Commands Reference
@@ -334,54 +329,21 @@ main
 
 ### After Merging a PR
 
-When you merge the bottom PR into main, here's how to sync your remaining stack:
-
-#### Step 1: Fetch the merged changes
+When you merge the bottom PR into main, preview and sync the entire connected stack:
 
 ```bash
-jj git fetch
-```
-
-This pulls the merge commit from GitHub into your local repo.
-
-#### Step 2: Abandon the merged change
-
-The merged bookmark's change is now in main, so abandon it locally:
-
-```bash
-# Find the change ID of the merged bookmark
-jj log
-
-# Abandon it (this removes it from your working set)
-jj abandon <change-id>
-```
-
-Or if you know the bookmark name:
-
-```bash
-jj abandon <merged-bookmark-name>
-```
-
-#### Step 3: Rebase remaining changes onto main@origin
-
-```bash
-jj rebase -d main@origin
-```
-
-> **Note:** Use `main@origin` (not just `main`) to ensure you rebase onto the updated remote trunk. After fetch, your local `main` bookmark may not automatically update, which can cause "immutable commits" errors.
-
-This moves your remaining stack to be based on the updated main branch.
-
-#### Step 4: Re-submit the stack
-
-```bash
-jj-stacked submit <top-bookmark>
+jjk sync <any-bookmark-in-the-stack> --dry-run
+jjk sync <any-bookmark-in-the-stack>
 ```
 
 This will:
-- Update PR base branches (next PR now targets main instead of merged branch)
-- Update stack navigation comments
-- Push any new changes
+- Fetch the selected remote before analysis
+- Abandon contiguous merged bookmarks
+- Rebase each remaining stack root onto the remote trunk
+- Push rewritten bookmarks
+- Refresh existing PR base branches and stack comments without creating PRs
+
+Dry-run performs the fetch so its plan is current, but does not rewrite history, push, or write to GitHub. Use `--no-resubmit` to skip the final PR refresh.
 
 ### Complete Example
 
@@ -397,17 +359,8 @@ main
 Sync your local repo:
 
 ```bash
-# 1. Fetch merged changes
-jj git fetch
-
-# 2. Abandon the merged change
-jj abandon user-model
-
-# 3. Rebase onto updated main@origin
-jj rebase -d main@origin
-
-# 4. Re-submit remaining stack
-jj-stacked submit user-tests
+jjk sync user-api --dry-run
+jjk sync user-api
 ```
 
 Your stack is now:
@@ -420,21 +373,19 @@ main (includes user-model changes)
 
 ### Handling Multiple Merges
 
-If several PRs merged while you were away:
+If several PRs merged while you were away, the same command abandons only the contiguous merged bookmarks from the bottom:
 
 ```bash
-jj git fetch
-
-# Abandon all merged bookmarks
-jj abandon user-model
-jj abandon user-api
-
-# Rebase what remains
-jj rebase -d main@origin
-
-# Re-submit
-jj-stacked submit user-tests
+jjk sync user-tests
 ```
+
+An out-of-order merge is reported as a blocking error instead of rewriting a stack with a gap.
+
+### Resolving or Aborting a Paused Sync
+
+If jj reports conflicts, resolve the files shown by `jj resolve --list`, confirm `jj status` is conflict-free, and run `jjk sync --continue`. Completed abandon, rebase, and push steps are checkpointed and are not repeated.
+
+Run `jjk sync --abort` to restore the recorded pre-sync jj operation. Remote pushes completed before the pause cannot be undone automatically.
 
 ### What NOT to Do
 
@@ -442,7 +393,7 @@ jj-stacked submit user-tests
 
 **Don't delete remote branches manually** - Let jj-stacked manage them. If you delete a branch that other PRs depend on, those PRs break.
 
-**Don't forget to rebase** - If you skip `jj rebase -d main@origin`, your local changes still have the old parent and subsequent submits will be confused.
+**Don't forget to sync** - After a merge, run `jjk sync <bookmark>` so local history and existing PR metadata remain aligned.
 
 ## Best Practices
 
@@ -488,14 +439,12 @@ Always use `--dry-run` first:
 jj-stacked submit my-feature --dry-run
 ```
 
-### Rebase After Merges
+### Sync After Merges
 
 When a PR in your stack merges:
 
 ```bash
-jj git fetch
-jj rebase -d main@origin
-jj-stacked submit top-of-stack
+jjk sync top-of-stack
 ```
 
 This updates the remaining PRs to target the correct base branches.

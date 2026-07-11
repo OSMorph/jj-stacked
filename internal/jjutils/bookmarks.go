@@ -10,12 +10,18 @@ import (
 
 // ListBookmarks returns all local bookmarks.
 func (j *jjFunctions) ListBookmarks(ctx context.Context) ([]Bookmark, error) {
+	return j.ListBookmarksForRemote(ctx, "")
+}
+
+// ListBookmarksForRemote returns local bookmarks with tracking status for a
+// specific remote. An empty remote preserves the legacy any-remote behavior.
+func (j *jjFunctions) ListBookmarksForRemote(ctx context.Context, remoteFilter string) ([]Bookmark, error) {
 	bookmarks, err := j.listLocalBookmarks(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	remoteBookmarks, err := j.getRemoteBookmarks(ctx)
+	remoteBookmarks, err := j.getRemoteBookmarks(ctx, remoteFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -37,6 +43,13 @@ func (j *jjFunctions) ListBookmarks(ctx context.Context) ([]Bookmark, error) {
 // This is more robust than using mine() ~ trunk() which can miss bookmarks
 // after merges when commits become hidden/obsolete.
 func (j *jjFunctions) ListUserBookmarks(ctx context.Context) ([]Bookmark, error) {
+	return j.ListUserBookmarksForBase(ctx, "trunk()")
+}
+
+// ListUserBookmarksForBase returns bookmarks that have not been incorporated
+// into base. Sync uses this to honor a selected remote instead of the local
+// trunk() alias.
+func (j *jjFunctions) ListUserBookmarksForBase(ctx context.Context, base string) ([]Bookmark, error) {
 	// Get all local bookmarks
 	allBookmarks, err := j.ListBookmarks(ctx)
 	if err != nil {
@@ -48,7 +61,7 @@ func (j *jjFunctions) ListUserBookmarks(ctx context.Context) ([]Bookmark, error)
 	}
 
 	// Get trunk commit ID to filter out trunk bookmark
-	trunkEntries, err := j.GetLog(ctx, "trunk()", 1)
+	trunkEntries, err := j.GetLog(ctx, base, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -75,17 +88,15 @@ func (j *jjFunctions) ListUserBookmarks(ctx context.Context) ([]Bookmark, error)
 		// This handles cases where bookmarks point to abandoned/obsolete changes
 		_, err = j.GetChange(ctx, bm.ChangeID)
 		if err != nil {
-			// Change doesn't exist (abandoned/hidden) - skip this bookmark
-			continue
+			return nil, fmt.Errorf("inspect bookmark %s: %w", bm.Name, err)
 		}
 
 		// Check if this bookmark's change is an ancestor of trunk (already merged)
 		// Use a revset to check: if the bookmark's change is in trunk's ancestors, skip it
-		revset := fmt.Sprintf("%s & ::trunk()", bm.ChangeID)
+		revset := fmt.Sprintf("%s & ::%s", bm.ChangeID, base)
 		entries, err := j.GetLog(ctx, revset, 1)
 		if err != nil {
-			// Query failed - skip this bookmark to be safe
-			continue
+			return nil, fmt.Errorf("check bookmark %s against base %s: %w", bm.Name, base, err)
 		}
 
 		// If no entries returned, the change is NOT in trunk's ancestors - include it
@@ -195,7 +206,7 @@ type remoteBookmarkInfo struct {
 }
 
 // getRemoteBookmarks returns a map of bookmark name -> remote info from remote bookmarks.
-func (j *jjFunctions) getRemoteBookmarks(ctx context.Context) (map[string]remoteBookmarkInfo, error) {
+func (j *jjFunctions) getRemoteBookmarks(ctx context.Context, remoteFilter string) (map[string]remoteBookmarkInfo, error) {
 	// Use heads(remote_bookmarks()) to get the current positions of remote bookmarks
 	entries, err := j.GetLog(ctx, "heads(remote_bookmarks())", 0)
 	if err != nil {
@@ -212,6 +223,9 @@ func (j *jjFunctions) getRemoteBookmarks(ctx context.Context) (map[string]remote
 			}
 			name := cleanBookmarkMarkers(parts[0])
 			remote := cleanBookmarkMarkers(parts[1])
+			if remoteFilter != "" && remote != remoteFilter {
+				continue
+			}
 			// Store the latest (heads) entry for each remote bookmark
 			result[name] = remoteBookmarkInfo{
 				CommitID: entries[i].CommitID,

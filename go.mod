@@ -1,8 +1,6 @@
 module github.com/OSMorph/jj-stacked
 
-go 1.24.0
-
-toolchain go1.24.11
+go 1.26.5
 
 require (
 	github.com/charmbracelet/bubbles v0.21.0

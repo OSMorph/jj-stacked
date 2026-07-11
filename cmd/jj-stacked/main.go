@@ -2,6 +2,8 @@ package main
 
 import (
 	"os"
+	"path/filepath"
+	runtimeDebug "runtime/debug"
 
 	"github.com/spf13/cobra"
 
@@ -10,11 +12,29 @@ import (
 	completioncmd "github.com/OSMorph/jj-stacked/internal/commands/completion"
 	submitcmd "github.com/OSMorph/jj-stacked/internal/commands/submit"
 	synccmd "github.com/OSMorph/jj-stacked/internal/commands/sync"
+	updatecmd "github.com/OSMorph/jj-stacked/internal/commands/update"
 	"github.com/OSMorph/jj-stacked/internal/ui"
 )
 
 // version is set at build time via -ldflags
 var version = "dev"
+
+func commandName() string {
+	if filepath.Base(os.Args[0]) == "jjk" {
+		return "jjk"
+	}
+	return "jj-stacked"
+}
+
+func resolvedVersion() (string, bool) {
+	if version != "dev" {
+		return version, false
+	}
+	if info, ok := runtimeDebug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version, true
+	}
+	return version, false
+}
 
 // Global flags
 var (
@@ -29,7 +49,7 @@ func main() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "jj-stacked",
+	Use:   commandName(),
 	Short: "Manage stacked pull requests for Jujutsu repositories",
 	Long: `jj-stacked is a CLI tool for creating and managing stacked pull requests
 on GitHub for developers using Jujutsu (jj) version control.
@@ -67,6 +87,8 @@ EXAMPLES:
 }
 
 func init() {
+	resolved, goInstall := resolvedVersion()
+	rootCmd.Version = resolved
 	// Setup Flags
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug logging")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colored output")
@@ -76,5 +98,9 @@ func init() {
 	rootCmd.AddCommand(submitcmd.NewCommand())
 	rootCmd.AddCommand(authcmd.NewCommand())
 	rootCmd.AddCommand(synccmd.NewCommand())
+	rootCmd.AddCommand(updatecmd.NewCommand(updatecmd.Options{
+		CurrentVersion: resolved,
+		GoInstall:      goInstall,
+	}))
 	rootCmd.AddCommand(completioncmd.NewCommand(rootCmd))
 }
