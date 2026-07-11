@@ -15,6 +15,8 @@ type AnalyzeOptions struct {
 	// If empty, all stacks are analyzed.
 	Bookmark string
 	Remote   string
+	// TrunkBranch is the selected remote repository's default branch.
+	TrunkBranch string
 }
 
 // SyncAnalysis is the result of analyzing what needs to be synced.

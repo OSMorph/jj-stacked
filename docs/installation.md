@@ -10,7 +10,7 @@ Before installing jj-stacked, ensure you have:
 - **Git** - Required for the colocated workflow
 - **GitHub account** - With a personal access token (repo scope)
 
-Go 1.24+ is required only for source builds and `go install`. Prebuilt releases and Homebrew do not require Go.
+Go 1.26.5+ is required only for source builds and `go install`. Prebuilt releases and Homebrew do not require Go.
 
 ### Verify Jujutsu Installation
 
@@ -107,8 +107,8 @@ make install
 # Or choose another prefix
 make install PREFIX="$HOME"
 
-# Or copy manually
-sudo cp jj-stacked /usr/local/bin/
+# Or copy the Makefile build manually
+sudo cp ./bin/jj-stacked /usr/local/bin/
 sudo ln -sf /usr/local/bin/jj-stacked /usr/local/bin/jjk
 ```
 
@@ -208,7 +208,7 @@ jjk update --check
 jjk update
 ```
 
-`jjk update` verifies the release checksum before atomically replacing `jj-stacked` and `jjk`. Windows users receive the exact matching download link.
+`jjk update` verifies the release checksum, stages replacements in the installation directory, and rolls back completed replacements if a later step fails. Windows users receive the exact matching download link.
 
 ### From Homebrew
 
@@ -273,7 +273,7 @@ export PATH="$HOME/go/bin:$PATH"
 
 ### "cannot find module"
 
-Ensure you have Go 1.24 or later:
+Ensure you have Go 1.26.5 or later:
 
 ```bash
 go version

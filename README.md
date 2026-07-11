@@ -42,7 +42,7 @@ See [Installation](#installation) for other install methods (Homebrew, manual do
 - GitHub account with `repo` scope token
 - A Jujutsu repository colocated with Git (`jj git init --colocate`)
 
-Go 1.24+ is only required when building from source or using `go install`.
+Go 1.26.5+ is only required when building from source or using `go install`.
 
 ## Installation
 

@@ -232,6 +232,35 @@ func TestIntegration_SimpleStack(t *testing.T) {
 	}
 }
 
+func TestIntegration_ChangeGraphHonorsExplicitBase(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	repo := setupTestRepo(t)
+	defer repo.cleanup()
+
+	repo.createChange(t, "base feature")
+	repo.createBookmark(t, "feature-base")
+	repo.createChange(t, "tip feature")
+	repo.createBookmark(t, "feature-tip")
+
+	jj := jjutils.NewJJFunctions(repo.exec, "jj")
+	graph, err := jj.BuildChangeGraphForBase(t.Context(), "feature-base")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := graph.Bookmarks["feature-base"]; ok {
+		t.Fatal("explicit base bookmark was included in the graph")
+	}
+	if _, ok := graph.Bookmarks["feature-tip"]; !ok {
+		t.Fatal("bookmark above explicit base was omitted from the graph")
+	}
+	if len(graph.Roots) != 1 || graph.Roots[0] != "feature-tip" {
+		t.Fatalf("roots = %v, want [feature-tip]", graph.Roots)
+	}
+}
+
 func TestIntegration_OperationCheckpointRestore(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

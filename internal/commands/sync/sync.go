@@ -159,8 +159,9 @@ func runSync(ctx context.Context, opts *Options) error {
 		fmt.Printf("Analyzing sync state...\n")
 	}
 	analysisOpts := sync.AnalyzeOptions{
-		Bookmark: opts.Bookmark,
-		Remote:   repoCtx.Remote,
+		Bookmark:    opts.Bookmark,
+		Remote:      repoCtx.Remote,
+		TrunkBranch: repoCtx.DefaultBranch,
 	}
 	analysis, err := sync.AnalyzeSyncWithOptions(ctx, jj, repoCtx.GitHub, repoCtx.Owner, repoCtx.Repo, analysisOpts)
 	if err != nil {
@@ -285,6 +286,9 @@ func runSync(ctx context.Context, opts *Options) error {
 			return fmt.Errorf("refresh existing pull requests: %w", err)
 		}
 		state.MarkStepComplete("refresh-prs")
+		if err := sync.SaveSyncState(ctx, jj, state); err != nil {
+			return fmt.Errorf("checkpoint completed pull request refresh: %w", err)
+		}
 	}
 
 	if result.Success {
@@ -419,7 +423,7 @@ func handleContinue(ctx context.Context, jj jjutils.JJFunctions, log *logger.Log
 }
 
 func refreshExistingPRs(ctx context.Context, jj jjutils.JJFunctions, repoCtx *repo.RepoContext, bookmark string, log *logger.Logger) error {
-	graph, err := jj.BuildChangeGraph(ctx)
+	graph, err := jj.BuildChangeGraphForBase(ctx, fmt.Sprintf("%s@%s", repoCtx.DefaultBranch, repoCtx.Remote))
 	if err != nil {
 		return err
 	}

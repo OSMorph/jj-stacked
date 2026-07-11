@@ -23,12 +23,73 @@ func TestCompareVersions(t *testing.T) {
 		{"v2.4.2", "v2.4.3", -1},
 		{"2.4.3", "v2.4.3", 0},
 		{"v2.5.0", "v2.4.3", 1},
+		{"v2.5.0-rc.1", "v2.5.0", -1},
+		{"v2.5.0-rc.10", "v2.5.0-rc.2", 1},
+		{"v2.5.0", "v2.5.0-rc.1", 1},
+		{"v2.5.0+build.2", "v2.5.0+build.1", 0},
 		{"dev", "v2.4.3", -1},
 	}
 	for _, tt := range tests {
 		if got := compareVersions(tt.a, tt.b); got != tt.want {
 			t.Errorf("compareVersions(%q, %q) = %d, want %d", tt.a, tt.b, got, tt.want)
 		}
+	}
+}
+
+func TestDownloadRejectsOversizedResponse(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Status:        "200 OK",
+			ContentLength: 5,
+			Body:          io.NopCloser(strings.NewReader("12345")),
+		}, nil
+	})}
+	if _, err := download(t.Context(), client, "https://example.test/asset", 4); err == nil {
+		t.Fatal("expected oversized response error")
+	}
+}
+
+func TestReplaceInstalledBinariesDoesNotOverwriteUnrelatedNeighbors(t *testing.T) {
+	dir := t.TempDir()
+	executable := filepath.Join(dir, "custom-name")
+	neighbor := filepath.Join(dir, "jj-stacked")
+	if err := os.WriteFile(executable, []byte("running-copy"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(neighbor, []byte("unrelated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binaries := map[string][]byte{"jj-stacked": []byte("new-main"), "jjk": []byte("new-alias")}
+	if err := replaceInstalledBinaries(executable, binaries); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(executable)
+	if string(got) != "new-main" {
+		t.Fatalf("executable = %q, want new-main", got)
+	}
+	got, _ = os.ReadFile(neighbor)
+	if string(got) != "unrelated" {
+		t.Fatalf("neighbor was overwritten: %q", got)
+	}
+}
+
+func TestReplaceInstalledBinariesPreservesPreexistingBackup(t *testing.T) {
+	dir := t.TempDir()
+	executable := filepath.Join(dir, "jj-stacked")
+	backup := executable + ".update-backup"
+	if err := os.WriteFile(executable, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backup, []byte("sentinel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := replaceInstalledBinaries(executable, map[string][]byte{"jj-stacked": []byte("new"), "jjk": []byte("new")}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(backup)
+	if string(got) != "sentinel" {
+		t.Fatalf("preexisting backup = %q, want sentinel", got)
 	}
 }
 
@@ -91,6 +152,9 @@ func TestIsHomebrewPath(t *testing.T) {
 	}
 	if isHomebrewPath("/Users/test/.local/bin/jjk") {
 		t.Fatal("ordinary release path detected as Homebrew")
+	}
+	if isHomebrewPath("/Users/test/homebrew/bin/jjk") {
+		t.Fatal("directory merely named homebrew detected as managed installation")
 	}
 }
 

@@ -80,14 +80,20 @@ func FilterMergedFromBottom(
 		mergedSet[m.Name] = m
 	}
 
-	// A merged bookmark is safe only if each bookmark parent is also merged.
+	// A merged bookmark is safe only if every bookmark ancestor is also merged.
+	// Checking only the immediate parent is insufficient: in A -> B -> C, C
+	// must remain blocked when A and C are merged but B is not.
 	for name, mergedBookmark := range mergedSet {
-		parent := graph.ChildToParent[name]
-		if parent != "" {
+		blocked := false
+		for parent := graph.ChildToParent[name]; parent != ""; parent = graph.ChildToParent[parent] {
 			if _, parentMerged := mergedSet[parent]; !parentMerged {
 				errors = append(errors, &OutOfOrderMergeError{Bookmark: name, Parent: parent})
-				continue
+				blocked = true
+				break
 			}
+		}
+		if blocked {
+			continue
 		}
 		contiguousMerged = append(contiguousMerged, mergedBookmark)
 	}

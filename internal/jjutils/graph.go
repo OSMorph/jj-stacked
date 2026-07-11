@@ -66,10 +66,15 @@ func (g *ChangeGraph) GetConnectedBookmarks(bookmarkName string) []string {
 // 6. Detect merge commits and mark tainted bookmarks
 // 7. Build complete stacks from roots to leaves
 func (j *jjFunctions) BuildChangeGraph(ctx context.Context) (*ChangeGraph, error) {
+	return j.BuildChangeGraphForBase(ctx, "trunk()")
+}
+
+// BuildChangeGraphForBase builds a bookmark graph relative to base.
+func (j *jjFunctions) BuildChangeGraphForBase(ctx context.Context, base string) (*ChangeGraph, error) {
 	graph := NewChangeGraph()
 
 	// Step 1: Get all user bookmarks
-	userBookmarks, err := j.ListUserBookmarks(ctx)
+	userBookmarks, err := j.ListUserBookmarksForBase(ctx, base)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list user bookmarks: %w", err)
 	}
@@ -85,7 +90,7 @@ func (j *jjFunctions) BuildChangeGraph(ctx context.Context) (*ChangeGraph, error
 
 	// Step 2-3: For each bookmark, find its segment and parent
 	for _, bm := range userBookmarks {
-		segment, parentBookmark, err := j.buildSegment(ctx, bm, graph.Bookmarks)
+		segment, parentBookmark, err := j.buildSegment(ctx, bm, graph.Bookmarks, base)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build segment for %s: %w", bm.Name, err)
 		}
@@ -133,14 +138,14 @@ func (j *jjFunctions) BuildChangeGraph(ctx context.Context) (*ChangeGraph, error
 
 // buildSegment builds a BookmarkSegment by traversing from the bookmark toward trunk.
 // Returns the segment and the name of the parent bookmark (empty if trunk is parent).
-func (j *jjFunctions) buildSegment(ctx context.Context, bm Bookmark, allBookmarks map[string]Bookmark) (*BookmarkSegment, string, error) {
+func (j *jjFunctions) buildSegment(ctx context.Context, bm Bookmark, allBookmarks map[string]Bookmark, base string) (*BookmarkSegment, string, error) {
 	segment := &BookmarkSegment{
 		Bookmark: bm,
 	}
 
 	// Get changes from this bookmark toward trunk
 	// We use ancestors to traverse backward, stopping at trunk or another bookmark
-	revset := fmt.Sprintf("ancestors(%s, 100) ~ trunk()", bm.ChangeID)
+	revset := fmt.Sprintf("ancestors(%s, 100) ~ ::%s", bm.ChangeID, base)
 
 	entries, err := j.GetLog(ctx, revset, 100)
 	if err != nil {

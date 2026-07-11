@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/OSMorph/jj-stacked/internal/jjutils"
@@ -16,11 +17,12 @@ type fakeJJ struct {
 		source      string
 		destination string
 	}
-	pushCalls      []struct{ remote, bookmark string }
-	abandonCalls   []string
-	pushErrors     map[string]error
-	conflictOn     int
-	conflictChecks int
+	pushCalls        []struct{ remote, bookmark string }
+	abandonCalls     []string
+	pushErrors       map[string]error
+	listBookmarksErr error
+	conflictOn       int
+	conflictChecks   int
 }
 
 func (f *fakeJJ) GetRepoRoot(context.Context) (string, error)              { panic("unexpected call") }
@@ -39,12 +41,30 @@ func (f *fakeJJ) Push(_ context.Context, remote, bookmark string) error {
 }
 
 func (f *fakeJJ) ListBookmarks(context.Context) ([]jjutils.Bookmark, error) {
-	return f.bookmarks, nil
+	return f.bookmarks, f.listBookmarksErr
+}
+
+func TestExecuteSyncWithState_DoesNotCheckpointMissingBookmarksWhenListingFails(t *testing.T) {
+	jj := &fakeJJ{listBookmarksErr: errors.New("jj log failed")}
+	plan := &SyncPlan{Remote: "origin", ToDelete: []string{"merged"}}
+	state := CreateInitialState(plan, "op", "", true)
+
+	result := ExecuteSyncWithState(context.Background(), plan, state, jj, nil)
+
+	if result.Success || state.StepComplete("delete:merged") {
+		t.Fatalf("success=%v completed=%v, want failed and incomplete", result.Success, state.CompletedSteps)
+	}
+	if len(result.Errors) != 1 || !strings.Contains(result.Errors[0].Error(), "list bookmarks") {
+		t.Fatalf("errors = %v", result.Errors)
+	}
 }
 func (f *fakeJJ) ListBookmarksForRemote(context.Context, string) ([]jjutils.Bookmark, error) {
 	return f.bookmarks, nil
 }
 func (f *fakeJJ) ListUserBookmarks(context.Context) ([]jjutils.Bookmark, error) {
+	panic("unexpected call")
+}
+func (f *fakeJJ) ListUserBookmarksForBase(context.Context, string) ([]jjutils.Bookmark, error) {
 	panic("unexpected call")
 }
 func (f *fakeJJ) GetBookmarksForChange(context.Context, string) ([]jjutils.Bookmark, error) {
@@ -71,6 +91,9 @@ func (f *fakeJJ) GetChangesInRange(context.Context, string, string) ([]jjutils.L
 }
 
 func (f *fakeJJ) BuildChangeGraph(context.Context) (*jjutils.ChangeGraph, error) {
+	panic("unexpected call")
+}
+func (f *fakeJJ) BuildChangeGraphForBase(context.Context, string) (*jjutils.ChangeGraph, error) {
 	panic("unexpected call")
 }
 

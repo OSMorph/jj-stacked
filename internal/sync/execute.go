@@ -61,7 +61,13 @@ func ExecuteSyncWithState(ctx context.Context, plan *SyncPlan, state *SyncState,
 		if state.StepComplete(step) {
 			continue
 		}
-		existing := getExistingBookmarks(ctx, jj)
+		existing, err := getExistingBookmarks(ctx, jj)
+		if err != nil {
+			result.Errors = append(result.Errors, err)
+			result.Success = false
+			checkpoint("delete-failed")
+			return result
+		}
 		if !existing[bookmark] {
 			state.MarkStepComplete(step)
 			if !checkpoint("delete") {
@@ -72,7 +78,7 @@ func ExecuteSyncWithState(ctx context.Context, plan *SyncPlan, state *SyncState,
 		if callbacks != nil && callbacks.OnDelete != nil {
 			callbacks.OnDelete(bookmark)
 		}
-		err := jj.DeleteBookmark(ctx, bookmark)
+		err = jj.DeleteBookmark(ctx, bookmark)
 		if callbacks != nil && callbacks.OnDeleteComplete != nil {
 			callbacks.OnDeleteComplete(bookmark, err)
 		}
@@ -94,7 +100,13 @@ func ExecuteSyncWithState(ctx context.Context, plan *SyncPlan, state *SyncState,
 		if state.StepComplete(step) {
 			continue
 		}
-		existing := getExistingBookmarks(ctx, jj)
+		existing, err := getExistingBookmarks(ctx, jj)
+		if err != nil {
+			result.Errors = append(result.Errors, err)
+			result.Success = false
+			checkpoint("abandon-failed")
+			return result
+		}
 		if !existing[bookmark] {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("bookmark %s no longer exists; skipping abandon", bookmark))
 			state.MarkStepComplete(step)
@@ -106,7 +118,7 @@ func ExecuteSyncWithState(ctx context.Context, plan *SyncPlan, state *SyncState,
 		if callbacks != nil && callbacks.OnAbandon != nil {
 			callbacks.OnAbandon(bookmark)
 		}
-		err := jj.Abandon(ctx, bookmark)
+		err = jj.Abandon(ctx, bookmark)
 		if callbacks != nil && callbacks.OnAbandonComplete != nil {
 			callbacks.OnAbandonComplete(bookmark, err)
 		}
@@ -132,8 +144,10 @@ func ExecuteSyncWithState(ctx context.Context, plan *SyncPlan, state *SyncState,
 		if state.StepComplete(step) {
 			continue
 		}
-		existing := getExistingBookmarks(ctx, jj)
-		if !existing[root] {
+		existing, err := getExistingBookmarks(ctx, jj)
+		if err != nil {
+			rebaseErr = err
+		} else if !existing[root] {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("stack root %s no longer exists; skipping rebase", root))
 			state.MarkStepComplete(step)
 			if !checkpoint("rebase") {
@@ -168,7 +182,13 @@ func ExecuteSyncWithState(ctx context.Context, plan *SyncPlan, state *SyncState,
 		result.Rebased = append(result.Rebased, plan.ToRebase...)
 	}
 
-	existing := getExistingBookmarks(ctx, jj)
+	existing, err := getExistingBookmarks(ctx, jj)
+	if err != nil {
+		result.Errors = append(result.Errors, err)
+		result.Success = false
+		checkpoint("push-failed")
+		return result
+	}
 	for _, bookmark := range plan.ToPush {
 		step := "push:" + bookmark
 		if state.StepComplete(step) {
@@ -208,20 +228,19 @@ func ExecuteSyncWithState(ctx context.Context, plan *SyncPlan, state *SyncState,
 }
 
 // getExistingBookmarks returns a set of bookmark names that currently exist.
-func getExistingBookmarks(ctx context.Context, jj jjutils.JJFunctions) map[string]bool {
+func getExistingBookmarks(ctx context.Context, jj jjutils.JJFunctions) (map[string]bool, error) {
 	// Use all local bookmarks, not just "user" bookmarks. Some commands (notably push)
 	// require the bookmark to exist regardless of whether it points at trunk() or not.
 	bookmarks, err := jj.ListBookmarks(ctx)
 	if err != nil {
-		// On error, return empty map (will cause all bookmarks to be filtered out)
-		return make(map[string]bool)
+		return nil, fmt.Errorf("list bookmarks before sync step: %w", err)
 	}
 
 	existing := make(map[string]bool)
 	for _, bm := range bookmarks {
 		existing[bm.Name] = true
 	}
-	return existing
+	return existing, nil
 }
 
 // FormatResult returns a human-readable summary of the sync result.

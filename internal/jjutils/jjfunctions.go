@@ -24,6 +24,7 @@ type JJFunctions interface {
 	ListBookmarks(ctx context.Context) ([]Bookmark, error)
 	ListBookmarksForRemote(ctx context.Context, remote string) ([]Bookmark, error)
 	ListUserBookmarks(ctx context.Context) ([]Bookmark, error)
+	ListUserBookmarksForBase(ctx context.Context, base string) ([]Bookmark, error)
 	GetBookmarksForChange(ctx context.Context, changeID string) ([]Bookmark, error)
 	DeleteBookmark(ctx context.Context, name string) error
 
@@ -34,6 +35,7 @@ type JJFunctions interface {
 
 	// Graph building
 	BuildChangeGraph(ctx context.Context) (*ChangeGraph, error)
+	BuildChangeGraphForBase(ctx context.Context, base string) (*ChangeGraph, error)
 
 	// Mutation operations (for sync command)
 	Abandon(ctx context.Context, revset string) error

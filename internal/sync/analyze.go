@@ -52,16 +52,27 @@ func AnalyzeSyncWithOptions(
 	}
 
 	// Step 1: Get trunk info
-	trunkInfo, err := jj.GetTrunkInfo(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get trunk info: %w", err)
+	if opts.TrunkBranch == "" {
+		trunkInfo, err := jj.GetTrunkInfo(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get trunk info: %w", err)
+		}
+		analysis.TrunkBranch = trunkInfo.BranchName
+	} else {
+		analysis.TrunkBranch = opts.TrunkBranch
 	}
-	analysis.TrunkBranch = trunkInfo.BranchName
-	analysis.TrunkChangeID = trunkInfo.ChangeID
 	target := fmt.Sprintf("%s@%s", analysis.TrunkBranch, analysis.Remote)
+	entries, err := jj.GetLog(ctx, target, 1)
+	if err != nil {
+		return nil, fmt.Errorf("resolve selected remote trunk %s: %w", target, err)
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("selected remote trunk %s returned no commits", target)
+	}
+	analysis.TrunkChangeID = entries[0].ChangeID
 
 	// Step 2: Get user bookmarks
-	allBookmarks, err := jj.ListUserBookmarks(ctx)
+	allBookmarks, err := jj.ListUserBookmarksForBase(ctx, target)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list user bookmarks: %w", err)
 	}
@@ -83,7 +94,7 @@ func AnalyzeSyncWithOptions(
 	}
 
 	// Step 3: Build the change graph to understand stack structure
-	graph, err := jj.BuildChangeGraph(ctx)
+	graph, err := jj.BuildChangeGraphForBase(ctx, target)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build change graph: %w", err)
 	}
@@ -169,7 +180,7 @@ func AnalyzeSyncWithOptions(
 	for i := range mergedBookmarks {
 		inTrunk, err := jj.IsAncestor(ctx, mergedBookmarks[i].ChangeID, target)
 		if err != nil {
-			analysis.Warnings = append(analysis.Warnings, fmt.Sprintf("could not determine whether merged bookmark %s is already in trunk: %v", mergedBookmarks[i].Name, err))
+			analysis.Errors = append(analysis.Errors, fmt.Errorf("determine whether merged bookmark %s is already in trunk: %w", mergedBookmarks[i].Name, err))
 			continue
 		}
 		mergedBookmarks[i].InTrunk = inTrunk

@@ -43,6 +43,13 @@ func (j *jjFunctions) ListBookmarksForRemote(ctx context.Context, remoteFilter s
 // This is more robust than using mine() ~ trunk() which can miss bookmarks
 // after merges when commits become hidden/obsolete.
 func (j *jjFunctions) ListUserBookmarks(ctx context.Context) ([]Bookmark, error) {
+	return j.ListUserBookmarksForBase(ctx, "trunk()")
+}
+
+// ListUserBookmarksForBase returns bookmarks that have not been incorporated
+// into base. Sync uses this to honor a selected remote instead of the local
+// trunk() alias.
+func (j *jjFunctions) ListUserBookmarksForBase(ctx context.Context, base string) ([]Bookmark, error) {
 	// Get all local bookmarks
 	allBookmarks, err := j.ListBookmarks(ctx)
 	if err != nil {
@@ -54,7 +61,7 @@ func (j *jjFunctions) ListUserBookmarks(ctx context.Context) ([]Bookmark, error)
 	}
 
 	// Get trunk commit ID to filter out trunk bookmark
-	trunkEntries, err := j.GetLog(ctx, "trunk()", 1)
+	trunkEntries, err := j.GetLog(ctx, base, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -81,17 +88,15 @@ func (j *jjFunctions) ListUserBookmarks(ctx context.Context) ([]Bookmark, error)
 		// This handles cases where bookmarks point to abandoned/obsolete changes
 		_, err = j.GetChange(ctx, bm.ChangeID)
 		if err != nil {
-			// Change doesn't exist (abandoned/hidden) - skip this bookmark
-			continue
+			return nil, fmt.Errorf("inspect bookmark %s: %w", bm.Name, err)
 		}
 
 		// Check if this bookmark's change is an ancestor of trunk (already merged)
 		// Use a revset to check: if the bookmark's change is in trunk's ancestors, skip it
-		revset := fmt.Sprintf("%s & ::trunk()", bm.ChangeID)
+		revset := fmt.Sprintf("%s & ::%s", bm.ChangeID, base)
 		entries, err := j.GetLog(ctx, revset, 1)
 		if err != nil {
-			// Query failed - skip this bookmark to be safe
-			continue
+			return nil, fmt.Errorf("check bookmark %s against base %s: %w", bm.Name, base, err)
 		}
 
 		// If no entries returned, the change is NOT in trunk's ancestors - include it

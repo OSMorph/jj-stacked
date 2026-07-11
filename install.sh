@@ -190,6 +190,7 @@ main() {
         info "Fetching latest version..."
         VERSION=$(get_latest_version)
     fi
+    VERSION="v${VERSION#v}"
     info "Installing version: ${VERSION}"
 
     # Version without 'v' prefix for archive name
