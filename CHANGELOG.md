@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.1](https://github.com/OSMorph/jj-stacked/compare/v2.5.0...v2.5.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* keep bookmark completion responsive ([f83c647](https://github.com/OSMorph/jj-stacked/commit/f83c647b5045ba5c5798be016559caecb6d2fb6b))
+
 ## [2.5.0](https://github.com/OSMorph/jj-stacked/compare/v2.4.3...v2.5.0) (2026-07-11)
 
 
