@@ -23,6 +23,7 @@ type JJFunctions interface {
 	// Bookmark operations
 	ListBookmarks(ctx context.Context) ([]Bookmark, error)
 	ListBookmarksForRemote(ctx context.Context, remote string) ([]Bookmark, error)
+	ListLocalBookmarks(ctx context.Context) ([]Bookmark, error)
 	ListUserBookmarks(ctx context.Context) ([]Bookmark, error)
 	ListUserBookmarksForBase(ctx context.Context, base string) ([]Bookmark, error)
 	GetBookmarksForChange(ctx context.Context, changeID string) ([]Bookmark, error)

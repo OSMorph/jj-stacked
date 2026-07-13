@@ -43,6 +43,9 @@ func (f *fakeJJ) Push(_ context.Context, remote, bookmark string) error {
 func (f *fakeJJ) ListBookmarks(context.Context) ([]jjutils.Bookmark, error) {
 	return f.bookmarks, f.listBookmarksErr
 }
+func (f *fakeJJ) ListLocalBookmarks(context.Context) ([]jjutils.Bookmark, error) {
+	return f.bookmarks, f.listBookmarksErr
+}
 
 func TestExecuteSyncWithState_DoesNotCheckpointMissingBookmarksWhenListingFails(t *testing.T) {
 	jj := &fakeJJ{listBookmarksErr: errors.New("jj log failed")}

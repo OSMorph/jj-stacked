@@ -14,13 +14,13 @@ type fakeBookmarkLister struct {
 	err       error
 }
 
-func (f fakeBookmarkLister) ListUserBookmarks(context.Context) ([]jjutils.Bookmark, error) {
+func (f fakeBookmarkLister) ListLocalBookmarks(context.Context) ([]jjutils.Bookmark, error) {
 	return f.bookmarks, f.err
 }
 
 func TestCompleteUserBookmarks(t *testing.T) {
 	got, err := CompleteUserBookmarks(context.Background(), fakeBookmarkLister{bookmarks: []jjutils.Bookmark{
-		{Name: "feature-a"}, {Name: "feature-b"},
+		{Name: "main"}, {Name: "feature-a"}, {Name: "feature-b"},
 	}})
 	if err != nil {
 		t.Fatal(err)

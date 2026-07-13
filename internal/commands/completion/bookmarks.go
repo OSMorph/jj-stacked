@@ -2,6 +2,7 @@ package completion
 
 import (
 	"context"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -9,19 +10,24 @@ import (
 	"github.com/OSMorph/jj-stacked/internal/jjutils"
 )
 
-type userBookmarkLister interface {
-	ListUserBookmarks(context.Context) ([]jjutils.Bookmark, error)
+const bookmarkCompletionTimeout = 750 * time.Millisecond
+
+type localBookmarkLister interface {
+	ListLocalBookmarks(context.Context) ([]jjutils.Bookmark, error)
 }
 
 // CompleteUserBookmarks returns bookmarks accepted by submit and sync.
-func CompleteUserBookmarks(ctx context.Context, jj userBookmarkLister) ([]string, error) {
-	bookmarks, err := jj.ListUserBookmarks(ctx)
+func CompleteUserBookmarks(ctx context.Context, jj localBookmarkLister) ([]string, error) {
+	bookmarks, err := jj.ListLocalBookmarks(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	result := make([]string, 0, len(bookmarks))
 	for _, bookmark := range bookmarks {
+		if bookmark.Name == "main" || bookmark.Name == "master" || bookmark.Name == "trunk" {
+			continue
+		}
 		result = append(result, bookmark.Name)
 	}
 	return result, nil
@@ -33,8 +39,10 @@ func BookmarkValidArgsFunction(cmd *cobra.Command, args []string, _ string) ([]s
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
+	ctx, cancel := context.WithTimeout(cmd.Context(), bookmarkCompletionTimeout)
+	defer cancel()
 	jj := jjutils.NewJJFunctions(cmdexec.NewRealExecutor(), "")
-	bookmarks, err := CompleteUserBookmarks(cmd.Context(), jj)
+	bookmarks, err := CompleteUserBookmarks(ctx, jj)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
