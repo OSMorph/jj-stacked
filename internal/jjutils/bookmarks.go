@@ -13,6 +13,13 @@ func (j *jjFunctions) ListBookmarks(ctx context.Context) ([]Bookmark, error) {
 	return j.ListBookmarksForRemote(ctx, "")
 }
 
+// ListLocalBookmarks returns local bookmark targets without querying remotes or
+// analyzing ancestry. It is intended for latency-sensitive callers such as
+// shell completion.
+func (j *jjFunctions) ListLocalBookmarks(ctx context.Context) ([]Bookmark, error) {
+	return j.listLocalBookmarks(ctx)
+}
+
 // ListBookmarksForRemote returns local bookmarks with tracking status for a
 // specific remote. An empty remote preserves the legacy any-remote behavior.
 func (j *jjFunctions) ListBookmarksForRemote(ctx context.Context, remoteFilter string) ([]Bookmark, error) {
@@ -165,7 +172,7 @@ func (j *jjFunctions) GetBookmarkByName(ctx context.Context, name string) (*Book
 
 // listLocalBookmarks returns bookmarks using the template (no remote tracking info).
 func (j *jjFunctions) listLocalBookmarks(ctx context.Context) ([]Bookmark, error) {
-	args := []string{"bookmark", "list", "-T", bookmarkTemplate}
+	args := []string{"--ignore-working-copy", "bookmark", "list", "-T", bookmarkTemplate}
 	output, err := j.exec.Run(ctx, j.jjCmd(), args...)
 	if err != nil {
 		return nil, &apperrors.JJError{
