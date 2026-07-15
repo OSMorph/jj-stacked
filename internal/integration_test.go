@@ -4,6 +4,7 @@ package internal
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -258,6 +259,77 @@ func TestIntegration_ChangeGraphHonorsExplicitBase(t *testing.T) {
 	}
 	if len(graph.Roots) != 1 || graph.Roots[0] != "feature-tip" {
 		t.Fatalf("roots = %v, want [feature-tip]", graph.Roots)
+	}
+}
+
+func TestIntegration_BookmarkScopedGraphIgnoresDivergentUnrelatedStack(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	repo := setupTestRepo(t)
+	defer repo.cleanup()
+
+	ctx := t.Context()
+	jj := jjutils.NewJJFunctions(repo.exec, "jj")
+
+	// Create two concurrent versions of an unrelated change, then point its
+	// bookmark at one specific commit. The change ID remains divergent.
+	repo.createChange(t, "unrelated original")
+	repo.createBookmark(t, "unrelated")
+	unrelated, err := jj.GetChange(ctx, "@")
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationID, err := jj.GetOperationID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.exec.Run(ctx, "jj", "describe", "-m", "unrelated version a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.exec.Run(ctx, "jj", "--at-operation", operationID, "describe", "-m", "unrelated version b"); err != nil {
+		t.Fatal(err)
+	}
+	divergent, err := jj.GetLog(ctx, fmt.Sprintf("change_id(%s)", unrelated.ChangeID), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(divergent) != 2 {
+		t.Fatalf("divergent revisions = %d, want 2", len(divergent))
+	}
+	if _, err := repo.exec.Run(ctx, "jj", "bookmark", "set", "unrelated", "-r", divergent[0].CommitID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create the selected two-bookmark stack directly over trunk.
+	if _, err := repo.exec.Run(ctx, "jj", "new", "-r", "trunk()", "-m", "target base"); err != nil {
+		t.Fatal(err)
+	}
+	repo.createBookmark(t, "target-base")
+	repo.createChange(t, "target tip")
+	repo.createBookmark(t, "target-tip")
+
+	graph, err := jj.BuildChangeGraphForBookmark(ctx, "target-tip", "trunk()")
+	if err != nil {
+		t.Fatalf("BuildChangeGraphForBookmark failed: %v", err)
+	}
+	if len(graph.Bookmarks) != 2 {
+		t.Fatalf("bookmarks = %v, want only target-base and target-tip", graph.Bookmarks)
+	}
+	for _, name := range []string{"target-base", "target-tip"} {
+		if _, ok := graph.Bookmarks[name]; !ok {
+			t.Fatalf("scoped graph omitted %q", name)
+		}
+	}
+	if _, ok := graph.Bookmarks["unrelated"]; ok {
+		t.Fatal("scoped graph included unrelated divergent stack")
+	}
+
+	// Global graph construction should also resolve normal bookmarks by commit
+	// ID instead of failing merely because their change ID is divergent.
+	if _, err := jj.BuildChangeGraph(ctx); err != nil {
+		t.Fatalf("BuildChangeGraph failed on divergent change ID: %v", err)
 	}
 }
 

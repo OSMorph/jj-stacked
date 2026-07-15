@@ -37,6 +37,7 @@ type JJFunctions interface {
 	// Graph building
 	BuildChangeGraph(ctx context.Context) (*ChangeGraph, error)
 	BuildChangeGraphForBase(ctx context.Context, base string) (*ChangeGraph, error)
+	BuildChangeGraphForBookmark(ctx context.Context, bookmark, base string) (*ChangeGraph, error)
 
 	// Mutation operations (for sync command)
 	Abandon(ctx context.Context, revset string) error

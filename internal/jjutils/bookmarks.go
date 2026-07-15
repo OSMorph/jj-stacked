@@ -73,34 +73,35 @@ func (j *jjFunctions) ListUserBookmarksForBase(ctx context.Context, base string)
 		return nil, err
 	}
 
-	var trunkChangeID string
+	var trunkCommitID string
 	if len(trunkEntries) > 0 {
-		trunkChangeID = trunkEntries[0].ChangeID
+		trunkCommitID = trunkEntries[0].CommitID
 	}
 
 	// Filter bookmarks: exclude those pointing at trunk or that are trunk-tracking bookmarks
 	var userBookmarks []Bookmark
 	for _, bm := range allBookmarks {
 		// Skip if this bookmark IS trunk
-		if bm.ChangeID == trunkChangeID {
+		if bm.CommitID == trunkCommitID {
 			continue
 		}
 
 		// Skip common trunk branch names
-		if bm.Name == "main" || bm.Name == "master" || bm.Name == "trunk" {
+		if isTrunkBookmarkName(bm.Name) {
 			continue
 		}
 
-		// First, verify the bookmark's change still exists
+		// First, verify the bookmark's commit still exists. Change IDs can be
+		// divergent, while a normal bookmark always points to one commit.
 		// This handles cases where bookmarks point to abandoned/obsolete changes
-		_, err = j.GetChange(ctx, bm.ChangeID)
+		_, err = j.GetChange(ctx, bm.CommitID)
 		if err != nil {
 			return nil, fmt.Errorf("inspect bookmark %s: %w", bm.Name, err)
 		}
 
 		// Check if this bookmark's change is an ancestor of trunk (already merged)
 		// Use a revset to check: if the bookmark's change is in trunk's ancestors, skip it
-		revset := fmt.Sprintf("%s & ::%s", bm.ChangeID, base)
+		revset := fmt.Sprintf("%s & ::%s", bm.CommitID, base)
 		entries, err := j.GetLog(ctx, revset, 1)
 		if err != nil {
 			return nil, fmt.Errorf("check bookmark %s against base %s: %w", bm.Name, base, err)
@@ -114,6 +115,10 @@ func (j *jjFunctions) ListUserBookmarksForBase(ctx context.Context, base string)
 	}
 
 	return userBookmarks, nil
+}
+
+func isTrunkBookmarkName(name string) bool {
+	return name == "main" || name == "master" || name == "trunk"
 }
 
 // GetBookmarksForChange returns all bookmarks pointing at a specific change.
