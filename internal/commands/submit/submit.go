@@ -103,7 +103,7 @@ func runSubmit(ctx context.Context, bookmark string, opts *Options) error {
 
 	// Phase 1: Build change graph
 	fmt.Printf("Building change graph...\n")
-	graph, err := jj.BuildChangeGraph(ctx)
+	graph, err := jj.BuildChangeGraphForBookmark(ctx, bookmark, "trunk()")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\nError: %s\n", apperrors.FormatErrorWithHint(err))
 		return fmt.Errorf("failed to build change graph")

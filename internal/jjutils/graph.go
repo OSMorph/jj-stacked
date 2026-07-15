@@ -71,13 +71,59 @@ func (j *jjFunctions) BuildChangeGraph(ctx context.Context) (*ChangeGraph, error
 
 // BuildChangeGraphForBase builds a bookmark graph relative to base.
 func (j *jjFunctions) BuildChangeGraphForBase(ctx context.Context, base string) (*ChangeGraph, error) {
-	graph := NewChangeGraph()
-
 	// Step 1: Get all user bookmarks
 	userBookmarks, err := j.ListUserBookmarksForBase(ctx, base)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list user bookmarks: %w", err)
 	}
+	return j.buildChangeGraphFromBookmarks(ctx, userBookmarks, base)
+}
+
+// BuildChangeGraphForBookmark builds only the ancestry stack ending at the
+// requested bookmark. Unrelated bookmarks are not inspected while constructing
+// segments, so problems in another stack cannot prevent a submission.
+func (j *jjFunctions) BuildChangeGraphForBookmark(ctx context.Context, bookmarkName, base string) (*ChangeGraph, error) {
+	allBookmarks, err := j.ListBookmarks(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list bookmarks: %w", err)
+	}
+
+	var target *Bookmark
+	for i := range allBookmarks {
+		if allBookmarks[i].Name == bookmarkName {
+			target = &allBookmarks[i]
+			break
+		}
+	}
+	if target == nil {
+		return NewChangeGraph(), nil
+	}
+
+	// Commit IDs select one revision even when the associated change ID is
+	// divergent. The revset also excludes commits already incorporated in base.
+	revset := fmt.Sprintf("ancestors(%s, 100) ~ ::%s", target.CommitID, base)
+	entries, err := j.GetLog(ctx, revset, 100)
+	if err != nil {
+		return nil, fmt.Errorf("find ancestry for bookmark %s: %w", bookmarkName, err)
+	}
+
+	ancestry := make(map[string]bool, len(entries))
+	for i := range entries {
+		ancestry[entries[i].CommitID] = true
+	}
+
+	relevantBookmarks := make([]Bookmark, 0, len(allBookmarks))
+	for _, bookmark := range allBookmarks {
+		if ancestry[bookmark.CommitID] && !isTrunkBookmarkName(bookmark.Name) {
+			relevantBookmarks = append(relevantBookmarks, bookmark)
+		}
+	}
+
+	return j.buildChangeGraphFromBookmarks(ctx, relevantBookmarks, base)
+}
+
+func (j *jjFunctions) buildChangeGraphFromBookmarks(ctx context.Context, userBookmarks []Bookmark, base string) (*ChangeGraph, error) {
+	graph := NewChangeGraph()
 
 	if len(userBookmarks) == 0 {
 		return graph, nil
@@ -145,7 +191,7 @@ func (j *jjFunctions) buildSegment(ctx context.Context, bm Bookmark, allBookmark
 
 	// Get changes from this bookmark toward trunk
 	// We use ancestors to traverse backward, stopping at trunk or another bookmark
-	revset := fmt.Sprintf("ancestors(%s, 100) ~ ::%s", bm.ChangeID, base)
+	revset := fmt.Sprintf("ancestors(%s, 100) ~ ::%s", bm.CommitID, base)
 
 	entries, err := j.GetLog(ctx, revset, 100)
 	if err != nil {
@@ -159,7 +205,7 @@ func (j *jjFunctions) buildSegment(ctx context.Context, bm Bookmark, allBookmark
 	for i := range entries {
 		// Skip the bookmark's own change if it has the bookmark
 		// (The first entry should be the bookmark itself)
-		isOwnChange := entries[i].ChangeID == bm.ChangeID
+		isOwnChange := entries[i].CommitID == bm.CommitID
 
 		// Check if this change has another user bookmark
 		for _, localBm := range entries[i].LocalBookmarks {

@@ -99,6 +99,9 @@ func (f *fakeJJ) BuildChangeGraph(context.Context) (*jjutils.ChangeGraph, error)
 func (f *fakeJJ) BuildChangeGraphForBase(context.Context, string) (*jjutils.ChangeGraph, error) {
 	panic("unexpected call")
 }
+func (f *fakeJJ) BuildChangeGraphForBookmark(context.Context, string, string) (*jjutils.ChangeGraph, error) {
+	panic("unexpected call")
+}
 
 func (f *fakeJJ) Abandon(_ context.Context, revset string) error {
 	f.abandonCalls = append(f.abandonCalls, revset)
