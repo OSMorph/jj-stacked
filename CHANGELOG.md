@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.2](https://github.com/OSMorph/jj-stacked/compare/v2.5.1...v2.5.2) (2026-07-15)
+
+
+### Bug Fixes
+
+* scope submit graph to target stack ([d481d4a](https://github.com/OSMorph/jj-stacked/commit/d481d4a5304089d98c2fcf6db25944e59b0e60d3))
+
 ## [2.5.1](https://github.com/OSMorph/jj-stacked/compare/v2.5.0...v2.5.1) (2026-07-13)
 
 
