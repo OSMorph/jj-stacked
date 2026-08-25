@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/OSMorph/jj-stacked/internal/github"
+	"github.com/OSMorph/jj-stacked/internal/jjutils"
 )
 
 // AIDEV-NOTE: Each action type implements SubmissionAction interface.
@@ -33,7 +34,9 @@ func (a *PushAction) Execute(ctx context.Context, deps *ActionDeps) (*ActionResu
 		Details: make(map[string]any),
 	}
 
-	err := deps.JJ.Push(ctx, deps.Remote, a.Bookmark)
+	err := deps.JJ.Push(ctx, deps.Remote, a.Bookmark, jjutils.PushOptions{
+		AllowEmptyDescription: true,
+	})
 	if err != nil {
 		result.Success = false
 		result.Error = fmt.Errorf("failed to push bookmark '%s': %w", a.Bookmark, err)

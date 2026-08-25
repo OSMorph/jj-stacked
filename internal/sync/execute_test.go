@@ -35,7 +35,7 @@ func (f *fakeJJ) FetchAllRemotes(context.Context) error {
 	f.fetchCalls++
 	return nil
 }
-func (f *fakeJJ) Push(_ context.Context, remote, bookmark string) error {
+func (f *fakeJJ) Push(_ context.Context, remote, bookmark string, _ jjutils.PushOptions) error {
 	f.pushCalls = append(f.pushCalls, struct{ remote, bookmark string }{remote: remote, bookmark: bookmark})
 	return f.pushErrors[bookmark]
 }

@@ -43,6 +43,14 @@ type Bookmark struct {
 	RemoteName string `json:"remote_name"`
 }
 
+// PushOptions controls the safety exceptions used for a bookmark push.
+type PushOptions struct {
+	// AllowEmptyDescription opts into pushing changes without descriptions.
+	// Callers should only set this when they provide a meaningful metadata
+	// fallback, such as submit's bookmark-derived pull request title.
+	AllowEmptyDescription bool
+}
+
 // NeedsPush returns true if this bookmark needs to be pushed to remote.
 func (b *Bookmark) NeedsPush() bool {
 	return !b.HasRemote || !b.IsSynced

@@ -226,18 +226,26 @@ jj-stacked will detect the mismatch and update the PR.
 
 **Possible causes:**
 
-1. **Branch protection rules** - Check repository settings on GitHub
-
-2. **Force push required** - If you've rewritten history:
+1. **Empty change description when using an older jj-stacked release** - Describe the bookmarked change, then submit again:
    ```bash
-   jj git push --bookmark my-feature --force
+   jj describe -r my-feature -m "Describe my feature"
+   jj-stacked submit my-feature
+   ```
+
+   Current releases can submit an undescribed change and use the bookmark name as the PR title.
+
+2. **Branch protection rules** - Check repository settings on GitHub
+
+3. **Stale remote state after rewriting history** - Fetch before submitting so jj can perform its force-with-lease safety check:
+   ```bash
+   jj git fetch --remote origin
    ```
    Then re-submit:
    ```bash
    jj-stacked submit my-feature
    ```
 
-3. **No push access** - Verify you have write access to the repository
+4. **No push access** - Verify you have write access to the repository
 
 ### Draft PRs not created
 
