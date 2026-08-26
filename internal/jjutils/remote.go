@@ -2,10 +2,15 @@ package jjutils
 
 import (
 	"context"
+	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	apperrors "github.com/OSMorph/jj-stacked/internal/errors"
 )
+
+var jjVersionPattern = regexp.MustCompile(`\b(\d+)\.(\d+)(?:\.\d+)?`)
 
 // ListRemotes returns all configured git remotes.
 func (j *jjFunctions) ListRemotes(ctx context.Context) ([]Remote, error) {
@@ -49,11 +54,40 @@ func (j *jjFunctions) FetchAllRemotes(ctx context.Context) error {
 	return nil
 }
 
-// Push pushes a bookmark to a remote.
-// Uses --allow-new to allow creating new branches on the remote.
+// Push pushes a bookmark to a remote. jj 0.36+ can mark a local bookmark as
+// tracking a not-yet-created remote bookmark; older supported versions require
+// --allow-new instead. jj 0.41 introduced the separate --remote tracking option.
 func (j *jjFunctions) Push(ctx context.Context, remote, bookmark string) error {
-	args := []string{"git", "push", "--remote", remote, "--bookmark", bookmark, "--allow-new"}
-	_, err := j.exec.Run(ctx, j.jjCmd(), args...)
+	version, err := j.getVersion(ctx)
+	if err != nil {
+		return err
+	}
+
+	args := []string{"git", "push", "--remote", remote, "--bookmark", bookmark}
+	switch {
+	case version.atLeast(0, 41):
+		trackArgs := []string{"bookmark", "track", bookmark, "--remote", remote}
+		if _, err := j.exec.Run(ctx, j.jjCmd(), trackArgs...); err != nil {
+			return &apperrors.JJError{
+				Command: j.jjCmd(),
+				Args:    trackArgs,
+				Err:     err,
+			}
+		}
+	case version.atLeast(0, 36):
+		trackArgs := []string{"bookmark", "track", bookmark + "@" + remote}
+		if _, err := j.exec.Run(ctx, j.jjCmd(), trackArgs...); err != nil {
+			return &apperrors.JJError{
+				Command: j.jjCmd(),
+				Args:    trackArgs,
+				Err:     err,
+			}
+		}
+	default:
+		args = append(args, "--allow-new")
+	}
+
+	_, err = j.exec.Run(ctx, j.jjCmd(), args...)
 	if err != nil {
 		return &apperrors.JJError{
 			Command: j.jjCmd(),
@@ -62,6 +96,43 @@ func (j *jjFunctions) Push(ctx context.Context, remote, bookmark string) error {
 		}
 	}
 	return nil
+}
+
+type jjVersion struct {
+	major int
+	minor int
+}
+
+func (v jjVersion) atLeast(major, minor int) bool {
+	return v.major > major || v.major == major && v.minor >= minor
+}
+
+func (j *jjFunctions) getVersion(ctx context.Context) (jjVersion, error) {
+	args := []string{"--version"}
+	output, err := j.exec.Run(ctx, j.jjCmd(), args...)
+	if err != nil {
+		return jjVersion{}, &apperrors.JJError{
+			Command: j.jjCmd(),
+			Args:    args,
+			Err:     err,
+		}
+	}
+
+	match := jjVersionPattern.FindStringSubmatch(output)
+	if match == nil {
+		return jjVersion{}, fmt.Errorf("could not parse jj version from %q", strings.TrimSpace(output))
+	}
+
+	major, err := strconv.Atoi(match[1])
+	if err != nil {
+		return jjVersion{}, fmt.Errorf("parse jj major version: %w", err)
+	}
+	minor, err := strconv.Atoi(match[2])
+	if err != nil {
+		return jjVersion{}, fmt.Errorf("parse jj minor version: %w", err)
+	}
+
+	return jjVersion{major: major, minor: minor}, nil
 }
 
 // parseRemoteList parses the output of `jj git remote list`.

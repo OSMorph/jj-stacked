@@ -86,7 +86,7 @@ jj-stacked submit <bookmark-name> [--dry-run] [--remote <name>] [--draft]
 - **Title**: Uses the first line of the change description
 - **Body**: Uses the remaining lines of the change description (after the first line)
 - Respects the conventional blank line separator between title and body
-- Falls back to the bookmark name for title if no description is available
+- Rejects submission before planning if any non-empty change in the selected stack has no description
 - Extracted from the change description using Jujutsu templates
 
 **Draft PR Support**:
@@ -516,14 +516,18 @@ see the full context of the work.
 **Functionality**:
 - Uses `jj git push` command with bookmark-specific options
 - Pushes to the specified remote (not hardcoded to 'origin')
-- Includes `--allow-new` flag to create new remote branches
+- Tracks new remote bookmarks explicitly on jj 0.36+ using the syntax supported by the installed jj version
+- Uses `--allow-new` only on jj 0.27-0.35, where explicit tracking of a new remote bookmark is unavailable
+- Retains jj's empty-description push safeguard
 - Handles push errors with detailed error messages
 - Provides progress feedback during push operations
 - Updates remote tracking information after successful push
 
 **Command Construction**:
 ```bash
-jj git push --remote <remote> --bookmark <bookmark-name> --allow-new
+jj bookmark track <bookmark-name>@<remote>           # jj 0.36-0.40
+jj bookmark track <bookmark-name> --remote <remote>  # jj 0.41+
+jj git push --remote <remote> --bookmark <bookmark-name>
 ```
 
 **Force Push Handling**:
