@@ -205,7 +205,7 @@ func ExecuteSyncWithState(ctx context.Context, plan *SyncPlan, state *SyncState,
 		if callbacks != nil && callbacks.OnPushStart != nil {
 			callbacks.OnPushStart(bookmark)
 		}
-		err := jj.Push(ctx, plan.Remote, bookmark, jjutils.PushOptions{})
+		err := jj.Push(ctx, plan.Remote, bookmark)
 		if callbacks != nil && callbacks.OnPushComplete != nil {
 			callbacks.OnPushComplete(bookmark, err)
 		}

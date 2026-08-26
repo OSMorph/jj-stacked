@@ -226,13 +226,11 @@ jj-stacked will detect the mismatch and update the PR.
 
 **Possible causes:**
 
-1. **Empty change description when using an older jj-stacked release** - Describe the bookmarked change, then submit again:
+1. **Empty change description** - Every non-empty change in the selected stack must have a description. Describe the reported change, then submit again:
    ```bash
    jj describe -r my-feature -m "Describe my feature"
    jj-stacked submit my-feature
    ```
-
-   Current releases can submit an undescribed change and use the bookmark name as the PR title.
 
 2. **Branch protection rules** - Check repository settings on GitHub
 

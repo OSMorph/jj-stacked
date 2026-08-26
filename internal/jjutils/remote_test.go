@@ -8,14 +8,14 @@ import (
 	"github.com/OSMorph/jj-stacked/internal/cmdexec"
 )
 
-func TestPushTracksBookmarkAndAllowsEmptyDescription(t *testing.T) {
+func TestPushTracksBookmarkOnCurrentJJ(t *testing.T) {
 	executor := cmdexec.NewMockExecutor()
 	executor.SetResponse("jj 0.44.0\n", "jj", "--version")
 	executor.SetResponse("", "jj", "bookmark", "track", "feature", "--remote", "upstream")
-	executor.SetResponse("", "jj", "git", "push", "--remote", "upstream", "--bookmark", "feature", "--allow-empty-description")
+	executor.SetResponse("", "jj", "git", "push", "--remote", "upstream", "--bookmark", "feature")
 
 	jj := NewJJFunctions(executor, "jj")
-	err := jj.Push(context.Background(), "upstream", "feature", PushOptions{AllowEmptyDescription: true})
+	err := jj.Push(context.Background(), "upstream", "feature")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +23,7 @@ func TestPushTracksBookmarkAndAllowsEmptyDescription(t *testing.T) {
 	want := [][]string{
 		{"--version"},
 		{"bookmark", "track", "feature", "--remote", "upstream"},
-		{"git", "push", "--remote", "upstream", "--bookmark", "feature", "--allow-empty-description"},
+		{"git", "push", "--remote", "upstream", "--bookmark", "feature"},
 	}
 	assertCommandArgs(t, executor.Calls, want)
 }
@@ -34,7 +34,7 @@ func TestPushUsesAllowNewForOlderSupportedJJ(t *testing.T) {
 	executor.SetResponse("", "jj", "git", "push", "--remote", "origin", "--bookmark", "feature", "--allow-new")
 
 	jj := NewJJFunctions(executor, "jj")
-	err := jj.Push(context.Background(), "origin", "feature", PushOptions{})
+	err := jj.Push(context.Background(), "origin", "feature")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,10 +50,10 @@ func TestPushUsesLegacyTrackingSyntaxForJJ036(t *testing.T) {
 	executor := cmdexec.NewMockExecutor()
 	executor.SetResponse("jj 0.36.0\n", "jj", "--version")
 	executor.SetResponse("", "jj", "bookmark", "track", "feature@origin")
-	executor.SetResponse("", "jj", "git", "push", "--remote", "origin", "--bookmark", "feature", "--allow-empty-description")
+	executor.SetResponse("", "jj", "git", "push", "--remote", "origin", "--bookmark", "feature")
 
 	jj := NewJJFunctions(executor, "jj")
-	err := jj.Push(context.Background(), "origin", "feature", PushOptions{AllowEmptyDescription: true})
+	err := jj.Push(context.Background(), "origin", "feature")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestPushUsesLegacyTrackingSyntaxForJJ036(t *testing.T) {
 	want := [][]string{
 		{"--version"},
 		{"bookmark", "track", "feature@origin"},
-		{"git", "push", "--remote", "origin", "--bookmark", "feature", "--allow-empty-description"},
+		{"git", "push", "--remote", "origin", "--bookmark", "feature"},
 	}
 	assertCommandArgs(t, executor.Calls, want)
 }

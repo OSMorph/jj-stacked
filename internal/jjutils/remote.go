@@ -57,17 +57,13 @@ func (j *jjFunctions) FetchAllRemotes(ctx context.Context) error {
 // Push pushes a bookmark to a remote. jj 0.36+ can mark a local bookmark as
 // tracking a not-yet-created remote bookmark; older supported versions require
 // --allow-new instead. jj 0.41 introduced the separate --remote tracking option.
-func (j *jjFunctions) Push(ctx context.Context, remote, bookmark string, options PushOptions) error {
+func (j *jjFunctions) Push(ctx context.Context, remote, bookmark string) error {
 	version, err := j.getVersion(ctx)
 	if err != nil {
 		return err
 	}
 
 	args := []string{"git", "push", "--remote", remote, "--bookmark", bookmark}
-	if options.AllowEmptyDescription {
-		args = append(args, "--allow-empty-description")
-	}
-
 	switch {
 	case version.atLeast(0, 41):
 		trackArgs := []string{"bookmark", "track", bookmark, "--remote", remote}

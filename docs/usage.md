@@ -420,7 +420,7 @@ jj bookmark create wip
 
 ### Commit Messages Matter
 
-The first line of your commit description becomes the PR title:
+Every non-empty change in the selected stack must have a description. The first line of the bookmarked change becomes the PR title:
 
 ```bash
 jj new -m "Add email validation to user registration

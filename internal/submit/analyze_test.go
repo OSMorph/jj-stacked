@@ -2,6 +2,7 @@ package submit
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/OSMorph/jj-stacked/internal/jjutils"
@@ -111,14 +112,54 @@ func TestAnalyzeSubmission_EmptyDescription(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should have a warning about missing description
-	if len(result.Warnings) == 0 {
-		t.Error("expected warning for empty description")
+	if !result.HasErrors() {
+		t.Fatal("expected an error for empty description")
 	}
+	want := "change 'change-a' in bookmark 'feature-a' has no description; run `jj describe -r change-a` before submitting"
+	if got := result.Errors[0].Error(); got != want {
+		t.Fatalf("error = %q, want %q", got, want)
+	}
+}
 
-	// Title should fall back to bookmark name
-	if len(result.Stack) > 0 && result.Stack[0].Title != "feature-a" {
-		t.Errorf("Title = %q, want %q (fallback to bookmark name)", result.Stack[0].Title, "feature-a")
+func TestAnalyzeSubmission_EmptyIntermediateDescription(t *testing.T) {
+	graph := createTestGraph()
+	segment := graph.Segments["feature-a"]
+	segment.Changes = append([]jjutils.LogEntry{
+		{
+			ChangeID: "undescribed-change",
+		},
+	}, segment.Changes...)
+	graph.Stacks[0].Segments[0].Changes = segment.Changes
+
+	result, err := AnalyzeSubmission(context.Background(), graph, "feature-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.HasErrors() {
+		t.Fatal("expected an error for undescribed intermediate change")
+	}
+	if got := result.Errors[0].Error(); !strings.Contains(got, "undescribed-change") {
+		t.Fatalf("error = %q, want change ID", got)
+	}
+}
+
+func TestAnalyzeSubmission_EmptyChangeDoesNotRequireDescription(t *testing.T) {
+	graph := createTestGraph()
+	segment := graph.Segments["feature-a"]
+	segment.Changes = append([]jjutils.LogEntry{
+		{
+			ChangeID: "empty-change",
+			IsEmpty:  true,
+		},
+	}, segment.Changes...)
+	graph.Stacks[0].Segments[0].Changes = segment.Changes
+
+	result, err := AnalyzeSubmission(context.Background(), graph, "feature-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.HasErrors() {
+		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 }
 

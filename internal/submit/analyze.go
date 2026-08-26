@@ -56,11 +56,13 @@ func AnalyzeSubmission(
 		// Extract title and body from the segment's changes
 		sb.Title, sb.Body = extractPRContent(&segment)
 
-		// Add warnings for potential issues
-		if sb.Title == "" {
-			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("bookmark '%s' has no description; PR title will use bookmark name", segment.Bookmark.Name))
-			sb.Title = segment.Bookmark.Name
+		// jj rejects pushes containing undescribed changes. Report every missing
+		// description during analysis so submission stops before GitHub planning.
+		for i := range segment.Changes {
+			change := &segment.Changes[i]
+			if !change.IsEmpty && strings.TrimSpace(change.DescriptionFirstLine) == "" {
+				result.Errors = append(result.Errors, missingDescriptionError(segment.Bookmark.Name, change))
+			}
 		}
 
 		result.Stack = append(result.Stack, sb)
@@ -78,6 +80,22 @@ func AnalyzeSubmission(
 	}
 
 	return result, nil
+}
+
+func missingDescriptionError(bookmark string, change *jjutils.LogEntry) error {
+	revision := change.ChangeID
+	if revision == "" {
+		revision = change.CommitID
+	}
+	if revision == "" {
+		return fmt.Errorf("bookmark '%s' contains a change with no description", bookmark)
+	}
+	return fmt.Errorf(
+		"change '%s' in bookmark '%s' has no description; run `jj describe -r %s` before submitting",
+		revision,
+		bookmark,
+		revision,
+	)
 }
 
 // extractPRContent extracts the PR title and body from a bookmark segment.

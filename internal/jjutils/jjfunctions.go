@@ -18,7 +18,7 @@ type JJFunctions interface {
 	ListRemotes(ctx context.Context) ([]Remote, error)
 	Fetch(ctx context.Context, remote string) error
 	FetchAllRemotes(ctx context.Context) error
-	Push(ctx context.Context, remote, bookmark string, options PushOptions) error
+	Push(ctx context.Context, remote, bookmark string) error
 
 	// Bookmark operations
 	ListBookmarks(ctx context.Context) ([]Bookmark, error)
