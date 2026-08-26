@@ -5,6 +5,7 @@
 
 ### Bug Fixes
 
+* build releases with Go 1.26.6 for standard library security fixes ([#19](https://github.com/OSMorph/jj-stacked/pull/19))
 * support current jj bookmark pushes while requiring descriptions ([#18](https://github.com/OSMorph/jj-stacked/pull/18))
 
 ## [2.5.2](https://github.com/OSMorph/jj-stacked/compare/v2.5.1...v2.5.2) (2026-07-15)

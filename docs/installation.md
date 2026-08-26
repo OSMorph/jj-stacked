@@ -10,7 +10,7 @@ Before installing jj-stacked, ensure you have:
 - **Git** - Required for the colocated workflow
 - **GitHub account** - With a personal access token (repo scope)
 
-Go 1.26.5+ is required only for source builds and `go install`. Prebuilt releases and Homebrew do not require Go.
+Go 1.26.6+ is required only for source builds and `go install`. Prebuilt releases and Homebrew do not require Go.
 
 ### Verify Jujutsu Installation
 
@@ -273,7 +273,7 @@ export PATH="$HOME/go/bin:$PATH"
 
 ### "cannot find module"
 
-Ensure you have Go 1.26.5 or later:
+Ensure you have Go 1.26.6 or later:
 
 ```bash
 go version
