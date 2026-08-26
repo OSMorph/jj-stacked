@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.3](https://github.com/OSMorph/jj-stacked/compare/v2.5.2...v2.5.3) (2026-08-26)
+
+
+### Bug Fixes
+
+* allow submitting undescribed changes ([3367689](https://github.com/OSMorph/jj-stacked/commit/3367689593c7357d2811952621d12b28475eec4f))
+* require descriptions before submit ([da1fc7d](https://github.com/OSMorph/jj-stacked/commit/da1fc7dc8a0131d86ef4582fa2ecf6116a82139b))
+
 ## [2.5.2](https://github.com/OSMorph/jj-stacked/compare/v2.5.1...v2.5.2) (2026-07-15)
 
 
