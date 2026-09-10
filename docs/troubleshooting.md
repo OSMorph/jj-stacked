@@ -23,8 +23,8 @@ This guide covers common issues and their solutions.
 
 3. If using environment variables, check they're set:
    ```bash
-   echo $GITHUB_TOKEN
-   # Should output your token (starts with ghp_)
+   test -n "$GITHUB_TOKEN" && echo "GITHUB_TOKEN is set"
+   # Check presence without printing the credential.
    ```
 
 4. Verify your token has `repo` scope:
@@ -186,7 +186,7 @@ jj git init --colocate
 
 **Symptom:** Warning about fetch failure when running `jj-stacked`.
 
-For `jj-stacked analyze`, this is usually non-fatal and analysis can continue with local state. For `jjk sync`, fetch failure is intentionally blocking because planning against stale remote state could rewrite or push the wrong stack.
+For `jj-stacked analyze`, this is usually non-fatal and analysis can continue with local state. For `submit`, `sync`, and remote-aware `prune`, fetch failure is intentionally blocking because planning against stale remote state could rewrite or push the wrong stack.
 
 **Possible causes:**
 - Network connectivity issues
@@ -255,6 +255,36 @@ jj-stacked submit my-feature --draft
 ```
 
 Note: Existing PRs aren't converted to drafts. The flag only affects new PRs.
+
+## Cleanup and recovery
+
+### "repository changed after the cleanup preview"
+
+Another jj operation or a newly snapshotted edit changed the reviewed state. Run the cleanup command again and review its new candidates. Do not reuse an old commit selection without checking it.
+
+### "abandonment would affect protected commit"
+
+The selected changes feed immutable history, a remote bookmark, a workspace, or a divergent version you chose to keep. Inspect their descendants with `jj log -r '<commit-id>::'`. Move or resolve the relevant references deliberately in jj, or keep that group. `--yes` does not bypass these protections.
+
+### "finish or abort the pending sync before cleanup"
+
+Run `jjk doctor` to inspect the pending phase, then resolve conflicts and run `jjk sync --continue`, or restore the saved local operation with `jjk sync --abort`. Completed remote pushes and GitHub edits cannot be rolled back by local restoration.
+
+### A merged bookmark was preserved
+
+A PR with the same bookmark name may refer to an older commit. Cleanup requires the exact merged PR head SHA to match the current local bookmark. New work on a reused bookmark is preserved. Review the PR and local diff rather than treating the name as proof that the work merged.
+
+### A merged segment could not be verified on trunk
+
+A matching PR head does not prove it merged into the trunk you selected. Sync also checks the actual landing commit, or verified dependency ancestry. An unknown destination or a merge newer than the fetch stops destructive cleanup. Inspect the PR's base and local history, then start a fresh sync using current remote state. `jjk prune --merged` can remove a verified merged bookmark locally while preserving its changes.
+
+### Recovering a cleanup
+
+The command prints `jj op restore <operation-id>` before mutation. Inspect `jj op log` and restore that operation if appropriate. This restores the whole recorded local repository state, so account for any work you did afterward. The command does not undo remote activity.
+
+### "ambiguous bookmark around @"
+
+Pass the bookmark explicitly to `submit` or `open`. Interactive terminals offer a picker; scripts do not guess between candidate stacks.
 
 ## UI Issues
 
@@ -325,6 +355,13 @@ Note: Existing PRs aren't converted to drafts. The flag only affects new PRs.
 - Submit smaller stacks more frequently
 
 ## Debug Mode
+
+Start with local diagnostics, then request authentication checks if needed:
+
+```bash
+jjk doctor
+jjk doctor --github
+```
 
 For detailed troubleshooting, enable debug output:
 

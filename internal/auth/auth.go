@@ -309,6 +309,9 @@ func validateTokenAndGetUser(ctx context.Context, token, hostname string) (*GitH
 
 // getAPIBaseURL returns the API base URL for a hostname.
 func getAPIBaseURL(hostname string) string {
+	if override := os.Getenv("GITHUB_API_URL"); override != "" {
+		return strings.TrimRight(override, "/")
+	}
 	if hostname == "github.com" {
 		return "https://api.github.com"
 	}

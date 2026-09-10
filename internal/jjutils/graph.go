@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 )
 
 // cleanBookmarkName removes jj display markers from bookmark names.
@@ -12,12 +11,7 @@ import (
 // names in log output, but these aren't part of the actual bookmark name.
 func cleanBookmarkName(name string) string {
 	// Remove trailing markers: *, @remote, etc.
-	name = strings.TrimSuffix(name, "*")
-	// Handle @remote suffix (e.g., "bookmark@origin")
-	if idx := strings.Index(name, "@"); idx > 0 {
-		name = name[:idx]
-	}
-	return name
+	return cleanBookmarkMarkers(name)
 }
 
 // GetConnectedBookmarks returns a bookmark's entire connected stack in
@@ -101,8 +95,8 @@ func (j *jjFunctions) BuildChangeGraphForBookmark(ctx context.Context, bookmarkN
 
 	// Commit IDs select one revision even when the associated change ID is
 	// divergent. The revset also excludes commits already incorporated in base.
-	revset := fmt.Sprintf("ancestors(%s, 100) ~ ::%s", target.CommitID, base)
-	entries, err := j.GetLog(ctx, revset, 100)
+	revset := fmt.Sprintf("::%s ~ ::%s", target.CommitID, base)
+	entries, err := j.GetLog(ctx, revset, 0)
 	if err != nil {
 		return nil, fmt.Errorf("find ancestry for bookmark %s: %w", bookmarkName, err)
 	}
@@ -163,6 +157,12 @@ func (j *jjFunctions) buildChangeGraphFromBookmarks(ctx context.Context, userBoo
 		}
 	}
 
+	sort.Strings(graph.Roots)
+	sort.Strings(graph.Leaves)
+	for name := range graph.ParentToChildren {
+		sort.Strings(graph.ParentToChildren[name])
+	}
+
 	// Step 6: Detect merge commits and mark tainted bookmarks
 	for name, segment := range graph.Segments {
 		for i := range segment.Changes {
@@ -191,9 +191,9 @@ func (j *jjFunctions) buildSegment(ctx context.Context, bm Bookmark, allBookmark
 
 	// Get changes from this bookmark toward trunk
 	// We use ancestors to traverse backward, stopping at trunk or another bookmark
-	revset := fmt.Sprintf("ancestors(%s, 100) ~ ::%s", bm.CommitID, base)
+	revset := fmt.Sprintf("::%s ~ ::%s", bm.CommitID, base)
 
-	entries, err := j.GetLog(ctx, revset, 100)
+	entries, err := j.GetLog(ctx, revset, 0)
 	if err != nil {
 		return nil, "", err
 	}

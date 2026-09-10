@@ -48,14 +48,20 @@ func DetectMergedBookmarks(
 
 		// Check if PR was merged (not just closed)
 		if pr.Merged && pr.MergedAt != nil {
+			if !pr.MatchesMergedHead(bm.CommitID) {
+				errors = append(errors, fmt.Errorf("bookmark %s has merged PR #%d but its current commit does not match the reviewed PR head; preserving it for review", bm.Name, pr.Number))
+				continue
+			}
 			merged = append(merged, MergedBookmark{
-				Name:     bm.Name,
-				ChangeID: bm.ChangeID,
-				CommitID: bm.CommitID,
-				PRNumber: pr.Number,
-				PRTitle:  pr.Title,
-				MergedAt: *pr.MergedAt,
-				MergedBy: pr.MergedBy,
+				Name:          bm.Name,
+				ChangeID:      bm.ChangeID,
+				CommitID:      bm.CommitID,
+				PRNumber:      pr.Number,
+				PRTitle:       pr.Title,
+				MergedAt:      *pr.MergedAt,
+				MergedBy:      pr.MergedBy,
+				BaseBranch:    pr.Base,
+				MergeCommitID: pr.MergeCommitSHA,
 			})
 		}
 	}
@@ -75,9 +81,9 @@ func FilterMergedFromBottom(
 	graph *jjutils.ChangeGraph,
 ) (contiguousMerged []MergedBookmark, errors []error) {
 	// Build a set of merged bookmark names for quick lookup
-	mergedSet := make(map[string]MergedBookmark)
-	for _, m := range merged {
-		mergedSet[m.Name] = m
+	mergedSet := make(map[string]*MergedBookmark)
+	for i := range merged {
+		mergedSet[merged[i].Name] = &merged[i]
 	}
 
 	// A merged bookmark is safe only if every bookmark ancestor is also merged.
@@ -95,10 +101,14 @@ func FilterMergedFromBottom(
 		if blocked {
 			continue
 		}
-		contiguousMerged = append(contiguousMerged, mergedBookmark)
+		contiguousMerged = append(contiguousMerged, *mergedBookmark)
 	}
 	sort.Slice(contiguousMerged, func(i, j int) bool {
-		return bookmarkDepth(graph, contiguousMerged[i].Name) < bookmarkDepth(graph, contiguousMerged[j].Name)
+		di, dj := bookmarkDepth(graph, contiguousMerged[i].Name), bookmarkDepth(graph, contiguousMerged[j].Name)
+		if di == dj {
+			return contiguousMerged[i].Name < contiguousMerged[j].Name
+		}
+		return di < dj
 	})
 	sort.Slice(errors, func(i, j int) bool { return errors[i].Error() < errors[j].Error() })
 
@@ -120,8 +130,8 @@ func GetRemainingBookmarks(
 	merged []MergedBookmark,
 ) []string {
 	mergedSet := make(map[string]bool)
-	for _, m := range merged {
-		mergedSet[m.Name] = true
+	for i := range merged {
+		mergedSet[merged[i].Name] = true
 	}
 
 	var remaining []string

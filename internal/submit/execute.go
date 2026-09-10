@@ -9,7 +9,7 @@ import (
 
 // AIDEV-NOTE: The execution phase performs all planned actions.
 // It executes in order: push → create PR → update base → sync comments.
-// Push failures abort execution. Other failures are collected but continue.
+// Push and PR creation failures abort execution; metadata failures are collected.
 
 // ExecuteSubmissionPlan executes all actions in the plan.
 func ExecuteSubmissionPlan(
@@ -22,8 +22,9 @@ func ExecuteSubmissionPlan(
 		Executed: make([]ActionResult, 0, len(plan.Actions)),
 	}
 
-	// Track created PRs so we can update sync comment actions
-	createdPRs := make(map[string]*github.PullRequest) // bookmark -> PR
+	// Each execution owns its PR discoveries; the reviewed plan remains unchanged.
+	executionDeps := *deps
+	executionDeps.createdPRs = make(map[string]*github.PullRequest)
 
 	// Helper functions for callbacks
 	notifyStart := func(action SubmissionAction) {
@@ -52,77 +53,41 @@ func ExecuteSubmissionPlan(
 		// Check context cancellation
 		select {
 		case <-ctx.Done():
-			result.Summary.Skipped = total - completed
+			result.Summary.Skipped += total - completed
 			return result, ctx.Err()
 		default:
 		}
 
 		notifyStart(action)
 
-		// Special handling for sync comment actions - update PR number if we created it
-		if syncAction, ok := action.(*SyncCommentAction); ok {
-			if syncAction.PRNumber == 0 {
-				// Look up the PR number from recently created PRs
-				if pr, found := createdPRs[syncAction.Bookmark]; found {
-					syncAction.PRNumber = pr.Number
-					// Also update stack entries
-					syncAction.StackEntries = updateStackEntries(syncAction.StackEntries, createdPRs)
-				} else {
-					// No PR to sync comment on - skip this action
-					result.Summary.Skipped++
-					completed++
-					notifyProgress(completed, total)
-					continue
-				}
-			} else {
-				// Update stack entries with any newly created PRs
-				syncAction.StackEntries = updateStackEntries(syncAction.StackEntries, createdPRs)
-			}
-		}
+		actionResult := action.Execute(ctx, &executionDeps)
+		actionResult.Action = action
 
-		// Execute the action
-		actionResult, err := action.Execute(ctx, deps)
-		if actionResult == nil {
-			actionResult = &ActionResult{
-				Action:  action,
-				Success: false,
-				Error:   err,
-				Details: make(map[string]interface{}),
-			}
-		}
+		result.Executed = append(result.Executed, actionResult)
 
-		result.Executed = append(result.Executed, *actionResult)
-
-		if actionResult.Success {
+		switch {
+		case actionResult.Skipped:
+			result.Summary.Skipped++
+		case actionResult.Error == nil:
 			result.Summary.Succeeded++
-
-			// Track created PRs for later use
-			if createAction, ok := action.(*CreatePRAction); ok {
-				if prNum, ok := actionResult.Details["pr_number"].(int); ok {
-					prURL, _ := actionResult.Details["pr_url"].(string)
-					createdPRs[createAction.Bookmark] = &github.PullRequest{
-						Number: prNum,
-						URL:    prURL,
-						Head:   createAction.Bookmark,
-						Base:   createAction.BaseBranch,
-					}
-				}
+			if actionResult.CreatedPR != nil {
+				executionDeps.createdPRs[actionResult.Bookmark] = actionResult.CreatedPR
 			}
-		} else {
+		default:
 			result.Summary.Failed++
 
 			// Determine if this is a critical error that should abort
 			if isCriticalAction(action) {
 				// Critical failure - abort remaining actions
 				remainingActions := total - completed - 1
-				result.Summary.Skipped = remainingActions
-				notifyComplete(action, *actionResult)
+				result.Summary.Skipped += remainingActions
+				notifyComplete(action, actionResult)
 				return result, fmt.Errorf("critical action failed: %w", actionResult.Error)
 			}
 		}
 
 		completed++
-		notifyComplete(action, *actionResult)
+		notifyComplete(action, actionResult)
 		notifyProgress(completed, total)
 	}
 
@@ -194,7 +159,7 @@ func ExecuteDryRun(plan *SubmissionPlan) error {
 func GetFailedActions(result *ExecutionResult) []ActionResult {
 	var failed []ActionResult
 	for _, ar := range result.Executed {
-		if !ar.Success {
+		if ar.Error != nil {
 			failed = append(failed, ar)
 		}
 	}
@@ -205,10 +170,8 @@ func GetFailedActions(result *ExecutionResult) []ActionResult {
 func GetCreatedPRURLs(result *ExecutionResult) []string {
 	var urls []string
 	for _, ar := range result.Executed {
-		if ar.Action.Type() == ActionCreatePR && ar.Success {
-			if url, ok := ar.Details["pr_url"].(string); ok {
-				urls = append(urls, url)
-			}
+		if ar.Error == nil && ar.CreatedPR != nil {
+			urls = append(urls, ar.CreatedPR.URL)
 		}
 	}
 	return urls

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -43,18 +44,26 @@ type GitHubClient interface {
 
 // PullRequest represents a GitHub pull request.
 type PullRequest struct {
-	Number    int
-	Title     string
-	Body      string
-	State     string
-	URL       string
-	Base      string
-	Head      string
-	Author    string // GitHub username of PR author
-	Merged    bool
-	Mergeable *bool
-	MergedAt  *time.Time
-	MergedBy  string
+	Number         int
+	Title          string
+	Body           string
+	State          string
+	URL            string
+	Base           string
+	Head           string
+	HeadSHA        string // Exact commit submitted as the PR head
+	MergeCommitSHA string // Commit written to the base branch by the merge
+	Author         string // GitHub username of PR author
+	Merged         bool
+	Mergeable      *bool
+	MergedAt       *time.Time
+	MergedBy       string
+}
+
+// MatchesMergedHead proves that a local commit is the exact head reviewed by
+// a merged PR. A reused bookmark name or abbreviated ID is insufficient.
+func (pr *PullRequest) MatchesMergedHead(commitID string) bool {
+	return pr != nil && pr.Merged && pr.MergedAt != nil && len(commitID) == 40 && pr.HeadSHA == commitID
 }
 
 // CreatePRRequest represents a request to create a pull request.
@@ -136,6 +145,14 @@ func NewClient(opts ClientOptions) (GitHubClient, error) {
 				Message:   fmt.Sprintf("failed to configure GHE client: %v", err),
 			}
 		}
+	}
+
+	if opts.APIBaseURL != "" {
+		base, err := url.Parse(strings.TrimRight(opts.APIBaseURL, "/") + "/")
+		if err != nil || base.Host == "" || (base.Scheme != "https" && base.Scheme != "http") {
+			return nil, fmt.Errorf("invalid GitHub API base URL")
+		}
+		gh.BaseURL = base
 	}
 
 	return &client{
@@ -391,15 +408,17 @@ func (c *client) wrapError(operation string, resp *github.Response, err error) e
 // convertPR converts a github.PullRequest to our PullRequest type.
 func convertPR(pr *github.PullRequest) *PullRequest {
 	result := &PullRequest{
-		Number:    pr.GetNumber(),
-		Title:     pr.GetTitle(),
-		Body:      pr.GetBody(),
-		State:     pr.GetState(),
-		URL:       pr.GetHTMLURL(),
-		Base:      pr.GetBase().GetRef(),
-		Head:      pr.GetHead().GetRef(),
-		Merged:    pr.GetMerged(),
-		Mergeable: pr.Mergeable,
+		Number:         pr.GetNumber(),
+		Title:          pr.GetTitle(),
+		Body:           pr.GetBody(),
+		State:          pr.GetState(),
+		URL:            pr.GetHTMLURL(),
+		Base:           pr.GetBase().GetRef(),
+		Head:           pr.GetHead().GetRef(),
+		HeadSHA:        pr.GetHead().GetSHA(),
+		MergeCommitSHA: pr.GetMergeCommitSHA(),
+		Merged:         pr.GetMerged() || pr.MergedAt != nil,
+		Mergeable:      pr.Mergeable,
 	}
 
 	if pr.User != nil {

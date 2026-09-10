@@ -43,6 +43,9 @@ type SyncAnalysis struct {
 	// RebaseRoots are independent stack roots that are not based on remote trunk.
 	RebaseRoots []string
 
+	// RebaseSources identifies the oldest change in each surviving root segment.
+	RebaseSources map[string]string
+
 	// Warnings are non-fatal issues discovered during analysis
 	Warnings []string
 
@@ -76,6 +79,15 @@ type MergedBookmark struct {
 	// InTrunk means the change is already an ancestor of remote trunk. In that
 	// case sync deletes only the bookmark instead of abandoning immutable history.
 	InTrunk bool
+
+	// BaseBranch and MergeCommitID identify where GitHub landed the PR.
+	BaseBranch    string
+	MergeCommitID string
+	// LandedCommitID is a direct merge or a proven dependency merge in trunk.
+	LandedCommitID string
+
+	// Commits contains the complete reviewed segment, oldest first.
+	Commits []string
 }
 
 // SyncPlan describes what actions will be taken during sync.
@@ -102,8 +114,23 @@ type SyncPlan struct {
 	// list contains one entry per connected stack.
 	RebaseRoots []string
 
+	// RebaseSources identifies the oldest change in each surviving root segment.
+	RebaseSources map[string]string
+
 	// Remote is used for the rebase target and all pushes.
 	Remote string
+
+	// CleanupHeads pins each merged bookmark to the exact GitHub-reviewed head.
+	CleanupHeads map[string]string
+
+	// CleanupProofs pins the merge commit proven to contain each cleaned head.
+	CleanupProofs map[string]string
+
+	// AbandonCommits is abandoned atomically so descendants are rewritten once.
+	AbandonCommits []string
+
+	// RefreshBookmarks preserves scope after merged anchors disappear.
+	RefreshBookmarks []string
 
 	// Summary provides a human-readable summary of the plan
 	Summary SyncSummary

@@ -78,7 +78,6 @@ const (
 	ActionCreatePR    ActionType = "create_pr"
 	ActionUpdateBase  ActionType = "update_base"
 	ActionSyncComment ActionType = "sync_comment"
-	ActionClosePR     ActionType = "close_pr"
 )
 
 // SubmissionAction is the interface for actions that can be executed.
@@ -90,7 +89,7 @@ type SubmissionAction interface {
 	Description() string
 
 	// Execute performs the action
-	Execute(ctx context.Context, deps *ActionDeps) (*ActionResult, error)
+	Execute(ctx context.Context, deps *ActionDeps) ActionResult
 }
 
 // ActionDeps provides dependencies needed by actions during execution.
@@ -100,6 +99,8 @@ type ActionDeps struct {
 	Owner  string
 	Repo   string
 	Remote string
+
+	createdPRs map[string]*github.PullRequest
 }
 
 // PlanSummary provides counts of planned operations.
@@ -107,7 +108,6 @@ type PlanSummary struct {
 	BookmarksToPush int
 	PRsToCreate     int
 	PRsToUpdate     int
-	PRsToClose      int
 	CommentsToSync  int
 }
 
@@ -125,14 +125,15 @@ type ActionResult struct {
 	// Action is the action that was executed
 	Action SubmissionAction
 
-	// Success indicates if the action succeeded
-	Success bool
-
 	// Error is set if the action failed
 	Error error
 
-	// Details contains action-specific output (e.g., PR URL, PR number)
-	Details map[string]any
+	Bookmark  string
+	CreatedPR *github.PullRequest
+	PRNumber  int
+	CommentID int64
+	Unchanged bool
+	Skipped   bool
 }
 
 // ExecutionSummary provides counts of execution outcomes.
@@ -149,7 +150,6 @@ type PlanningDeps struct {
 	Repo          string
 	Remote        string
 	DefaultBranch string
-	CurrentUser   string // GitHub username of the current user (for filtering orphaned PRs)
 }
 
 // PlanningCallbacks provides optional callbacks for planning progress.

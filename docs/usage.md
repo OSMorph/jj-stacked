@@ -1,455 +1,191 @@
-# Usage Guide
+# Usage guide
 
-This guide covers how to use jj-stacked for managing stacked pull requests.
+`jjk` and `jj-stacked` run the same commands. A local jj bookmark becomes a GitHub PR; its nearest downstack bookmark becomes the base. The bottom PR targets the repository's default branch.
 
-## Core Concepts
-
-### What are Stacked PRs?
-
-Stacked PRs are a series of pull requests where each PR builds on the previous one. Instead of one large PR, you create a chain of smaller, focused PRs that are easier to review.
-
-```
+```text
 main
-  └── feature-part-1 (PR #1)
-        └── feature-part-2 (PR #2)
-              └── feature-part-3 (PR #3)
+  └── user-model       PR targets main
+        └── user-api   PR targets user-model
 ```
 
-### How jj-stacked Works
-
-jj-stacked uses Jujutsu bookmarks to identify stacks. Each bookmark becomes a separate PR, with the base branch automatically set to maintain the stack structure:
-
-- The bottom bookmark's PR targets `main` (or your default branch)
-- Each subsequent bookmark's PR targets the bookmark below it
-
-## Basic Workflow
-
-### 1. Create Your First Change
-
-Start from your main branch and create a change:
+## Create and submit a stack
 
 ```bash
-jj new main -m "Add user data model"
-# Make your changes...
-jj bookmark create user-model
-```
-
-### 2. Stack Another Change
-
-Create a new change on top:
-
-```bash
-jj new -m "Add user API endpoints"
-# Make more changes...
-jj bookmark create user-api
-```
-
-### 3. Continue Stacking
-
-Add more changes as needed:
-
-```bash
-jj new -m "Add user tests"
-# Make more changes...
-jj bookmark create user-tests
-```
-
-### 4. View Your Stack
-
-See all your bookmark stacks:
-
-```bash
-jj-stacked
-```
-
-This opens an interactive view showing:
-- All bookmark stacks in your repository
-- Number of changes in each segment
-- Sync status with remote
-
-Use arrow keys to navigate, Enter to select, `q` to quit.
-
-### 5. Submit Your Stack
-
-Create PRs for your entire stack:
-
-```bash
-jj-stacked submit user-tests
-```
-
-This will:
-1. Push all bookmarks to GitHub
-2. Create PRs for `user-model`, `user-api`, and `user-tests`
-3. Set correct base branches (user-api PR targets user-model branch)
-4. Add stack navigation comments to each PR
-
-### 6. After Review
-
-When the bottom PR merges:
-
-```bash
-# Preview and then sync the whole connected stack
-jjk sync user-tests --dry-run
-jjk sync user-tests
-```
-
-## Commands Reference
-
-### `jj-stacked` (Default Command)
-
-Launches the interactive graph view.
-
-```bash
-jj-stacked
-```
-
-**Keyboard Controls:**
-- `↑/↓` or `j/k` - Navigate between bookmarks
-- `Enter` - Select bookmark (prints submission command)
-- `q` or `Ctrl+C` - Quit
-
-### `jj-stacked analyze`
-
-Analyze and display bookmark stacks with more options.
-
-```bash
-# Interactive view
-jj-stacked analyze
-
-# JSON output for scripting
-jj-stacked analyze --json
-
-# Skip remote fetch (faster)
-jj-stacked analyze --no-fetch
-```
-
-**Flags:**
-- `--json` - Output as JSON
-- `--no-fetch` - Skip fetching from remotes
-- `--debug` - Enable debug output
-
-### `jj-stacked submit <bookmark>`
-
-Submit a bookmark and all its downstack bookmarks as PRs.
-
-```bash
-# Submit a stack
-jj-stacked submit my-feature
-
-# Preview without making changes
-jj-stacked submit my-feature --dry-run
-
-# Create as draft PRs
-jj-stacked submit my-feature --draft
-
-# Specify a remote
-jj-stacked submit my-feature --remote upstream
-```
-
-**Flags:**
-- `--dry-run` - Show plan without executing
-- `--draft` - Create PRs as drafts
-- `--remote <name>` - Specify remote to push to
-- `--debug` - Enable debug output
-
-### `jj-stacked auth test`
-
-Test GitHub authentication.
-
-```bash
-# Test default host (auto-detected or github.com)
-jj-stacked auth test
-
-# Test specific host
-jj-stacked auth test --host git.mycompany.com
-```
-
-### `jj-stacked auth help`
-
-Display authentication setup instructions.
-
-```bash
-jj-stacked auth help
-```
-
-## Advanced Usage
-
-### Working with Multiple Stacks
-
-You can have multiple independent stacks:
-
-```bash
-# Stack 1: User feature
 jj new main -m "Add user model"
+# Edit files, then name the segment.
 jj bookmark create user-model
 jj new -m "Add user API"
+# Edit files.
 jj bookmark create user-api
 
-# Stack 2: Auth feature (independent)
-jj new main -m "Add auth middleware"
-jj bookmark create auth-middleware
-jj new -m "Add login endpoint"
-jj bookmark create auth-login
+jjk submit user-api --dry-run
+jjk submit user-api
 ```
 
-Submit each stack separately:
+`submit [bookmark]` fetches the selected remote, pushes the selected bookmark and all its dependencies, creates missing PRs, and updates existing bases and navigation comments. It does not close PRs. Unchanged bases and comments are left alone.
+
+Omit the bookmark to infer it from your working change:
 
 ```bash
-jj-stacked submit user-api
-jj-stacked submit auth-login
+jjk submit
+jjk open
 ```
 
-### Dry Run Mode
+Inference prefers bookmarks at `@`, then the closest bookmarked descendants when editing inside a segment, then the closest bookmarked ancestors. Ambiguous choices use a terminal picker; scripts must name a bookmark explicitly. `--draft` creates new PRs as drafts; it does not change the draft state of existing PRs. Mark existing drafts ready on GitHub.
 
-Always preview before submitting:
+Every non-empty change being pushed needs a description. The bookmarked change's first description line supplies its PR title.
 
-```bash
-jj-stacked submit my-feature --dry-run
-```
+## Inspect your work
 
-Output shows:
-- Bookmarks that will be pushed
-- PRs that will be created
-- Base branch assignments
-- Any warnings
+| Command | Result |
+| --- | --- |
+| `jjk` or `jjk analyze` | Interactive stack graph; arrows or j/k navigate, Enter prints a submit command, q quits. |
+| `jjk analyze --json --no-fetch` | Graph analysis using existing tracking state. |
+| `jjk status` | Compact bookmark/base/push/conflict/divergence table, without authentication or network requests. |
+| `jjk status --github --fetch` | Fetch the selected remote and include PR state, base, and cleanup evidence. |
+| `jjk status --github --json` | Structured report including PR URLs. |
+| `jjk doctor` | Effective jj executable/version, repository/remote/trunk, conflicts, divergence, and pending sync. |
+| `jjk doctor --github` | Also validate GitHub authentication and repository access. |
+| `jjk open user-api` | Open the bookmark's latest PR in the default browser. |
+| `jjk open user-api --url` | Print its URL without opening a browser. |
 
-### Draft PRs
+`status` reports whether its remote data was fetched; without `--fetch`, it uses local tracking data. `doctor` returns a nonzero status for errors; warnings are shown for conditions such as a pending sync or divergence. Both support `--json`.
 
-Create draft PRs when your work isn't ready for review:
+## Merge and sync
 
-```bash
-jj-stacked submit my-feature --draft
-```
-
-Later, mark them ready on GitHub, or re-submit without `--draft`.
-
-### Using with Multiple Remotes
-
-If you have multiple GitHub remotes (e.g., fork workflow):
-
-```bash
-# Push to upstream instead of origin
-jj-stacked submit my-feature --remote upstream
-```
-
-### JSON Output for Scripts
-
-Get machine-readable output:
-
-```bash
-jj-stacked analyze --json | jq '.stacks[0].bookmarks'
-```
-
-JSON structure:
-```json
-{
-  "stacks": [
-    {
-      "bookmarks": ["user-model", "user-api"],
-      "segments": [
-        {
-          "bookmark": "user-model",
-          "change_count": 3,
-          "is_synced": false,
-          "needs_push": true,
-          "parent": ""
-        }
-      ]
-    }
-  ],
-  "excluded_count": 0,
-  "warnings": []
-}
-```
-
-## Stack Navigation Comments
-
-Each PR receives a navigation comment showing the full stack:
-
-```markdown
-## Stack
-
-| PR | Status |
-|---|---|
-| #45 `user-tests` | |
-| #44 `user-api` | <- this PR |
-| #43 `user-model` | |
-
----
-*Managed by [jj-stacked](https://github.com/OSMorph/jj-stacked)*
-```
-
-These comments:
-- Link to all PRs in the stack
-- Show which PR you're currently viewing
-- Update automatically when you re-submit
-
-## GitHub Enterprise
-
-jj-stacked fully supports GitHub Enterprise instances.
-
-### Setup
-
-```bash
-# Using GitHub CLI
-gh auth login --hostname git.mycompany.com
-
-# Or environment variables
-export GHE_TOKEN=ghp_your_token
-export GITHUB_HOST=git.mycompany.com
-```
-
-### Test Connection
-
-```bash
-jj-stacked auth test --host git.mycompany.com
-```
-
-### Submit
-
-jj-stacked auto-detects the host from your remote URL. No special flags needed.
-
-## Merging and Syncing Stacks
-
-### Merge Order: Bottom to Top
-
-Always merge PRs starting from the **bottom** of the stack (closest to main) and work your way up:
-
-```
-main
-  └── feature-part-1 (PR #1) ← merge this first
-        └── feature-part-2 (PR #2) ← then this
-              └── feature-part-3 (PR #3) ← finally this
-```
-
-**Why bottom to top?**
-- Each PR's base branch is the one below it
-- Merging bottom-first means GitHub can cleanly merge each subsequent PR
-- Merging out of order causes conflicts and broken base branches
-
-### After Merging a PR
-
-When you merge the bottom PR into main, preview and sync the entire connected stack:
-
-```bash
-jjk sync <any-bookmark-in-the-stack> --dry-run
-jjk sync <any-bookmark-in-the-stack>
-```
-
-This will:
-- Fetch the selected remote before analysis
-- Abandon contiguous merged bookmarks
-- Rebase each remaining stack root onto the remote trunk
-- Push rewritten bookmarks
-- Refresh existing PR base branches and stack comments without creating PRs
-
-Dry-run performs the fetch so its plan is current, but does not rewrite history, push, or write to GitHub. Use `--no-resubmit` to skip the final PR refresh.
-
-### Complete Example
-
-Say you have this stack and PR #1 was just merged:
-
-```
-main
-  └── user-model (PR #1 - MERGED)
-        └── user-api (PR #2)
-              └── user-tests (PR #3)
-```
-
-Sync your local repo:
+Merge PRs from the bottom of the stack upward. After the bottom PR merges:
 
 ```bash
 jjk sync user-api --dry-run
 jjk sync user-api
 ```
 
-Your stack is now:
+A bookmark selects its whole connected stack, including branches above it. Without a bookmark, `sync` selects all stacks. It fetches the selected remote, identifies contiguous merged segments, cleans up verified merged work, rebases surviving segments onto remote trunk, pushes rewritten bookmarks, and refreshes existing PR bases/comments. It does not create PRs during refresh. `--no-resubmit` skips that final refresh.
 
-```
-main (includes user-model changes)
-  └── user-api (PR #2 - now targets main)
-        └── user-tests (PR #3)
-```
+Cleanup requires the merged PR's head SHA to match the local bookmark. A bookmark extended or reused since the merge is preserved. Abandoning a rewritten segment also requires evidence that it landed on the selected fetched trunk; a PR merged into some other branch is insufficient. Unsupported descendant paths or protected revisions stop cleanup for review. Out-of-order merges block automatic cleanup rather than skipping a gap.
 
-### Handling Multiple Merges
-
-If several PRs merged while you were away, the same command abandons only the contiguous merged bookmarks from the bottom:
+If conflicts pause sync, resolve the reported changes with jj and continue:
 
 ```bash
-jjk sync user-tests
+jj status
+jjk sync --continue
 ```
 
-An out-of-order merge is reported as a blocking error instead of rewriting a stack with a gap.
-
-### Resolving or Aborting a Paused Sync
-
-If jj reports conflicts, resolve the files shown by `jj resolve --list`, confirm `jj status` is conflict-free, and run `jjk sync --continue`. Completed abandon, rebase, and push steps are checkpointed and are not repeated.
-
-Run `jjk sync --abort` to restore the recorded pre-sync jj operation. Remote pushes completed before the pause cannot be undone automatically.
-
-### What NOT to Do
-
-**Don't merge from the top down** - This leaves orphaned PRs with invalid base branches.
-
-**Don't delete remote branches manually** - Let jj-stacked manage them. If you delete a branch that other PRs depend on, those PRs break.
-
-**Don't forget to sync** - After a merge, run `jjk sync <bookmark>` so local history and existing PR metadata remain aligned.
-
-## Best Practices
-
-### Keep Stacks Small
-
-Aim for 3-5 PRs per stack. Larger stacks:
-- Are harder to review
-- Have more merge conflicts
-- Take longer to land
-
-### Use Descriptive Bookmark Names
-
-Bookmarks become branch names and help identify PRs:
+To restore the recorded local state:
 
 ```bash
-# Good
-jj bookmark create add-user-validation
-jj bookmark create fix-login-redirect
-
-# Less descriptive
-jj bookmark create part1
-jj bookmark create wip
+jjk sync --abort
 ```
 
-### Commit Messages Matter
+Completed steps are checkpointed. Abort restores local jj state; it cannot undo pushes or GitHub edits already completed. Older saved cleanup plans without exact commit identities require aborting and starting a new sync.
 
-Every non-empty change in the selected stack must have a description. The first line of the bookmarked change becomes the PR title:
+## Prune merged bookmarks and stale drafts
+
+Start with a preview:
 
 ```bash
-jj new -m "Add email validation to user registration
-
-This adds server-side email validation with:
-- Format checking
-- Domain verification
-- Duplicate detection"
+jjk prune --merged --dry-run
+jjk prune --merged
+jjk prune --stale --older-than 30d
 ```
 
-### Preview Before Submitting
+The terminal lists candidates with reasons, commit IDs, references, and affected descendants. Enter candidate numbers (comma separated), `all`, or an empty selection to skip. After selection, review the final list and confirm; the default is no.
 
-Always use `--dry-run` first:
+| Scope | Candidate and action |
+| --- | --- |
+| `--merged` (default) | A merged PR matches the exact local commit: forget the local bookmark, preserve changes. |
+| `--closed` | A PR closed without merging: offer local bookmark removal, preserve changes. |
+| `--missing-remote` | A prior PR exists but its branch is absent on the selected remote: offer local bookmark removal. |
+| `--stale` | Old mutable draft heads outside remote and workspace ancestry: offer abandonment of selected changes. |
+
+Bookmark removal uses `jj bookmark forget`; it does not queue a remote branch deletion. No cleanup command closes PRs or deletes remote branches. Remote scopes fetch the selected remote and stop if that fetch fails.
+
+Staleness is based on the committer timestamp. It is an approximate inactivity filter, not proof that work is unwanted. The default is 30 days; `--older-than` also accepts durations such as `48h`. Stale cleanup is local and needs no GitHub authentication.
+
+By default, only eligible heads are offered. To inspect a whole draft range, supply a jj revset:
 
 ```bash
-jj-stacked submit my-feature --dry-run
+jjk prune --stale --revision 'old-feature::' --older-than 30d --dry-run
 ```
 
-### Sync After Merges
+Each revision still must pass the age and protection checks. Abandonment removes the selected changes and reparents surviving descendants onto their parents. Review changed files and affected descendants before confirming.
 
-When a PR in your stack merges:
+For scripts, an explicit scope and `--yes` are required:
 
 ```bash
-jjk sync top-of-stack
+jjk prune --merged --yes
+jjk prune --stale --older-than 90d --json
 ```
 
-This updates the remaining PRs to target the correct base branches.
+`--json` always reports without applying cleanup, even alongside `--yes`.
 
-## Next Steps
+## Abandon divergent versions
 
-- [Troubleshooting](troubleshooting.md) - Common issues and solutions
-- [Installation](installation.md) - Setup and configuration
+When a change has multiple visible versions, choose the one you intend to keep:
+
+```bash
+jjk abandon --diverged
+```
+
+The picker shows commit IDs, parents, descriptions, local/remote references, and content differences. Select the version to **keep**, or skip that group. The final preview identifies the other versions and descendants affected by abandonment.
+
+To act on one change group explicitly:
+
+```bash
+jjk abandon --diverged --keep <commit-id> --dry-run
+jjk abandon --diverged --keep <commit-id> --yes
+```
+
+Use a commit ID, not the ambiguous change ID. A unique commit prefix is accepted. There is no automatic “keep newest” policy. `--dry-run` or `--json` without `--keep` reports the groups without choosing a version.
+
+Descendants of an abandoned version are reparented onto that version's parents. They are not automatically transplanted onto the retained sibling. Cleanup blocks changes affecting immutable history, remote history, any workspace, or the retained version. Move or resolve those references deliberately in jj before retrying.
+
+Both cleanup commands print a recovery operation before applying changes:
+
+```text
+To restore local state: jj op restore <operation-id>
+```
+
+Restoration returns the repository to that local operation, including other later local work. Inspect `jj op log` before restoring after additional work. Cleanup stops if the repository changed after preview, and it requires finishing or aborting any pending sync first.
+
+## Dry runs
+
+`submit`, `sync`, `prune`, and `abandon` support `--dry-run`. They omit the planned history rewrites, cleanup, pushes, and GitHub writes. Remote-aware commands can still fetch and query GitHub; jj may snapshot working-copy edits. Use `status` or `analyze --no-fetch` for local inspection.
+
+## Remotes and configuration
+
+Commands that work with a selected remote accept `--remote NAME`. Selection defaults to `origin`, then the sole remote; otherwise specify it explicitly. `analyze` retains its all-remotes fetch behavior; `--no-fetch` skips it.
+
+```bash
+jjk submit user-api --remote upstream
+jjk sync user-api --remote upstream
+jjk status --remote upstream --fetch
+```
+
+Authentication can use GitHub CLI credentials or environment tokens. See [installation](installation.md) and [troubleshooting](troubleshooting.md).
+
+| Variable | Purpose |
+| --- | --- |
+| `JJ_PATH` | jj executable path; default `jj` on PATH. |
+| `GITHUB_TOKEN`, `GH_TOKEN` | GitHub authentication token. |
+| `GHE_TOKEN` | Token preferred for GitHub Enterprise. |
+| `GITHUB_HOST` | Override host detected from the selected remote. |
+| `GITHUB_API_URL` | Override the GitHub API base URL, including for GitHub.com. |
+| `GITHUB_OWNER`, `GITHUB_REPO` | Override the repository inferred from the remote. |
+| `TRUNK_BRANCH` | Override the default branch name. Authenticated commands otherwise query GitHub; local commands use jj configuration/bookmarks. |
+| `JJ_STACK_DEBUG` | Enable debug logging when nonempty; explicit `--debug=false` overrides it. |
+| `JJ_STACK_LOG_FORMAT` | Logging format (`text` or `json`). |
+| `NO_COLOR` | Disable colored output. |
+
+Global flags `--debug` and `--no-color` work before or after subcommands. Debug output can contain repository information; review it before sharing.
+
+## Completion and updates
+
+Generate shell completion with `jjk completion bash`, `zsh`, `fish`, or `powershell`. Bookmark arguments complete dynamically. Generate a separate script using `jj-stacked` if you use the long name.
+
+```bash
+jjk update --check
+jjk update
+```
+
+Updates run only when requested. Package-manager installations print the appropriate update command. Run `jjk COMMAND --help` for the full current flag reference.

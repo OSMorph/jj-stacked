@@ -9,11 +9,12 @@ import (
 )
 
 type fakeGitHubClient struct {
-	openPRs   []*github.PullRequest
-	comments  map[int][]*github.Comment
-	branches  map[string]bool
-	userLogin string
-	prsByHead map[string]*github.PullRequest
+	listOpenCalls, branchCalls, userCalls int
+	openPRs                               []*github.PullRequest
+	comments                              map[int][]*github.Comment
+	branches                              map[string]bool
+	userLogin                             string
+	prsByHead                             map[string]*github.PullRequest
 }
 
 func (f *fakeGitHubClient) GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error) {
@@ -26,6 +27,7 @@ func (f *fakeGitHubClient) UpdatePullRequest(ctx context.Context, owner, repo st
 	return nil, nil
 }
 func (f *fakeGitHubClient) ListOpenPullRequests(ctx context.Context, owner, repo string) ([]*github.PullRequest, error) {
+	f.listOpenCalls++
 	return f.openPRs, nil
 }
 func (f *fakeGitHubClient) FindPRByHead(ctx context.Context, owner, repo, head string) (*github.PullRequest, error) {
@@ -50,9 +52,12 @@ func TestCreatePRRefreshPlanNeverCreatesOrPushes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, action := range plan.Actions {
-		if action.Type() == ActionPush || action.Type() == ActionCreatePR || action.Type() == ActionClosePR {
+		if action.Type() == ActionPush || action.Type() == ActionCreatePR || action.Type() == ActionType("close_pr") {
 			t.Fatalf("refresh plan contains forbidden action %s", action.Type())
 		}
+	}
+	if client.listOpenCalls != 0 || client.branchCalls != 0 {
+		t.Fatal("refresh performed unrelated discovery")
 	}
 	if len(plan.Actions) != 2 { // update a's base and refresh a's comment
 		t.Fatalf("refresh actions = %d, want 2", len(plan.Actions))
@@ -74,9 +79,11 @@ func (f *fakeGitHubClient) GetDefaultBranch(ctx context.Context, owner, repo str
 	return "main", nil
 }
 func (f *fakeGitHubClient) BranchExists(ctx context.Context, owner, repo, branch string) (bool, error) {
+	f.branchCalls++
 	return f.branches[branch], nil
 }
 func (f *fakeGitHubClient) GetAuthenticatedUser(ctx context.Context) (string, error) {
+	f.userCalls++
 	if f.userLogin == "" {
 		return "testuser", nil
 	}
@@ -84,66 +91,18 @@ func (f *fakeGitHubClient) GetAuthenticatedUser(ctx context.Context) (string, er
 }
 func (f *fakeGitHubClient) Host() string { return "github.com" }
 
-func TestFindOrphanedPRs_DoesNotCloseWhenBranchStillExistsOnRemote(t *testing.T) {
-	ctx := context.Background()
-
-	stackComment := github.MetadataPrefix + "dummy" + github.MetadataSuffix + "\n\n" + github.CommentSignature
-
-	analysis := &AnalysisResult{
-		TargetBookmark: "b",
-		Stack: []StackBookmark{
-			{Bookmark: jjutils.Bookmark{Name: "a"}},
-			{Bookmark: jjutils.Bookmark{Name: "b"}},
-		},
+func TestSubmissionDoesNotDiscoverOrCloseUnrelatedPRs(t *testing.T) {
+	client := &fakeGitHubClient{openPRs: []*github.PullRequest{{Number: 9, Head: "unrelated", Base: "main"}}}
+	plan, err := CreateSubmissionPlan(context.Background(), &AnalysisResult{Stack: []StackBookmark{{Bookmark: jjutils.Bookmark{Name: "a"}}}}, &PlanningDeps{GitHub: client, DefaultBranch: "main"}, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	prFromOtherStack := &github.PullRequest{
-		Number: 1,
-		Head:   "other-stack-branch",
-		Base:   "b",
-		State:  "open",
-		Author: "me",
+	for _, action := range plan.Actions {
+		if action.Type() == ActionType("close_pr") {
+			t.Fatal("submission must never close a PR")
+		}
 	}
-	actuallyOrphaned := &github.PullRequest{
-		Number: 2,
-		Head:   "renamed-old-branch",
-		Base:   "b",
-		State:  "open",
-		Author: "me",
-	}
-
-	fakeGH := &fakeGitHubClient{
-		openPRs: []*github.PullRequest{
-			prFromOtherStack,
-			actuallyOrphaned,
-		},
-		comments: map[int][]*github.Comment{
-			1: {{Body: stackComment}},
-			2: {{Body: stackComment}},
-		},
-		branches: map[string]bool{
-			"other-stack-branch":    true,
-			"renamed-old-branch":    false,
-			"a":                     true,
-			"b":                     true,
-			"main":                  true,
-			"some-unrelated-branch": true,
-		},
-	}
-
-	deps := &PlanningDeps{
-		GitHub:        fakeGH,
-		Owner:         "o",
-		Repo:          "r",
-		DefaultBranch: "main",
-		CurrentUser:   "me",
-	}
-
-	orphaned := findOrphanedPRs(ctx, deps, analysis, map[string]*github.PullRequest{})
-	if len(orphaned) != 1 {
-		t.Fatalf("orphaned PRs = %d, want 1", len(orphaned))
-	}
-	if orphaned[0].Number != 2 {
-		t.Fatalf("orphaned[0].Number = %d, want 2", orphaned[0].Number)
+	if client.listOpenCalls != 0 || client.branchCalls != 0 || client.userCalls != 0 {
+		t.Fatalf("unrelated discovery: %+v", client)
 	}
 }

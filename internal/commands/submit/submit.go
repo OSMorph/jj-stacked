@@ -4,15 +4,15 @@ package submit
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
 
-	"github.com/OSMorph/jj-stacked/internal/cmdexec"
+	"github.com/OSMorph/jj-stacked/internal/commands/common"
 	completioncmd "github.com/OSMorph/jj-stacked/internal/commands/completion"
 	apperrors "github.com/OSMorph/jj-stacked/internal/errors"
 	"github.com/OSMorph/jj-stacked/internal/jjutils"
-	"github.com/OSMorph/jj-stacked/internal/logger"
 	"github.com/OSMorph/jj-stacked/internal/repo"
 	"github.com/OSMorph/jj-stacked/internal/submit"
 )
@@ -23,6 +23,8 @@ type Options struct {
 	Remote string
 	Draft  bool
 	Debug  bool
+	input  io.Reader
+	output io.Writer
 }
 
 // NewCommand creates the submit command.
@@ -30,13 +32,17 @@ func NewCommand() *cobra.Command {
 	opts := &Options{}
 
 	cmd := &cobra.Command{
-		Use:   "submit <bookmark>",
+		Use:   "submit [bookmark]",
 		Short: "Submit a bookmark stack as pull requests",
 		Long: `Submit a bookmark and all its downstack bookmarks as pull requests on GitHub.
 
 This command creates or updates PRs for the specified bookmark and all bookmarks
 in its ancestry chain (downstack). Each bookmark becomes a separate PR, with
 proper base branches set to maintain the stack structure.
+
+Without an argument, infer the closest bookmarked work around @, or ask when
+several bookmarks are possible. The selected remote is fetched before analysis,
+including --dry-run; dry-run does not push branches or change PRs.
 
 WORKFLOW:
   1. Analysis: Identifies all bookmarks from trunk to your target
@@ -63,27 +69,29 @@ PREREQUISITES:
   • GitHub authentication configured (run 'jj-stacked auth test')
   • Changes committed to bookmarks (not just working copy)
   • Bookmarks should be in a linear stack from trunk`,
-		Args:              cobra.ExactArgs(1),
+		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: completioncmd.BookmarkValidArgsFunction,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSubmit(cmd.Context(), args[0], opts)
+			opts.Debug = common.Debug(cmd)
+			opts.input, opts.output = cmd.InOrStdin(), cmd.ErrOrStderr()
+			bookmark := ""
+			if len(args) > 0 {
+				bookmark = args[0]
+			}
+			return runSubmit(cmd.Context(), bookmark, opts)
 		},
 	}
 
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Show what would be done without making changes")
 	cmd.Flags().StringVar(&opts.Remote, "remote", "", "Remote to push to (default: auto-detect from repository)")
 	cmd.Flags().BoolVar(&opts.Draft, "draft", false, "Create PRs as drafts (ready for review later)")
-	cmd.Flags().BoolVar(&opts.Debug, "debug", false, "Enable debug output for troubleshooting")
 
 	return cmd
 }
 
 func runSubmit(ctx context.Context, bookmark string, opts *Options) error {
 	// Set up logger
-	log := logger.New(logger.Options{
-		Debug:  opts.Debug,
-		Output: os.Stderr,
-	})
+	log := common.NewLogger(opts.Debug)
 
 	// Set up repo context
 	repoOpts := repo.RepoContextOptions{
@@ -99,11 +107,29 @@ func runSubmit(ctx context.Context, bookmark string, opts *Options) error {
 	}
 
 	// Create JJ functions
-	jj := jjutils.NewJJFunctions(cmdexec.NewRealExecutor(), "")
+	jj := repoCtx.JJ
+
+	// Refresh only the selected remote so graph ancestry and push state agree.
+	fmt.Printf("Fetching from %s...\n", repoCtx.Remote)
+	if err := jj.Fetch(ctx, repoCtx.Remote); err != nil {
+		return fmt.Errorf("fetch selected remote: %w", err)
+	}
+	base := jjutils.RemoteBookmarkRevset(repoCtx.DefaultBranch, repoCtx.Remote)
+	if bookmark == "" {
+		graph, err := jj.BuildChangeGraphForBase(ctx, base)
+		if err != nil {
+			return err
+		}
+		bookmark, err = common.ResolveBookmark(ctx, jj, graph, "", opts.input, opts.output)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Selected bookmark: %s\n", bookmark)
+	}
 
 	// Phase 1: Build change graph
 	fmt.Printf("Building change graph...\n")
-	graph, err := jj.BuildChangeGraphForBookmark(ctx, bookmark, "trunk()")
+	graph, err := jj.BuildChangeGraphForBookmark(ctx, bookmark, base)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\nError: %s\n", apperrors.FormatErrorWithHint(err))
 		return fmt.Errorf("failed to build change graph")
@@ -132,23 +158,12 @@ func runSubmit(ctx context.Context, bookmark string, opts *Options) error {
 	// Phase 3: Planning
 	fmt.Printf("Creating submission plan...\n")
 
-	// Get the current authenticated user for orphan PR detection
-	currentUser, err := repoCtx.GitHub.GetAuthenticatedUser(ctx)
-	if err != nil {
-		// Non-fatal: orphan detection will just skip author filtering
-		if opts.Debug {
-			log.Debug("could not get authenticated user", "error", err)
-		}
-		currentUser = ""
-	}
-
 	planningDeps := &submit.PlanningDeps{
 		GitHub:        repoCtx.GitHub,
 		Owner:         repoCtx.Owner,
 		Repo:          repoCtx.Repo,
 		Remote:        repoCtx.Remote,
 		DefaultBranch: repoCtx.DefaultBranch,
-		CurrentUser:   currentUser,
 	}
 
 	planCallbacks := &submit.PlanningCallbacks{
@@ -213,22 +228,17 @@ func runSubmit(ctx context.Context, bookmark string, opts *Options) error {
 			fmt.Printf("  → %s\n", action.Description())
 		},
 		OnActionComplete: func(action submit.SubmissionAction, result submit.ActionResult) {
-			if !result.Success {
+			if result.Error != nil {
 				errMsg := apperrors.FormatErrorWithHint(result.Error)
 				fmt.Printf("    ✗ Failed: %s\n", errMsg)
 				return
 			}
 			switch action.Type() {
 			case submit.ActionCreatePR:
-				if url, ok := result.Details["pr_url"].(string); ok {
-					fmt.Printf("    ✓ Created: %s\n", url)
+				if result.CreatedPR != nil {
+					fmt.Printf("    ✓ Created: %s\n", result.CreatedPR.URL)
 				}
-			case submit.ActionClosePR:
-				if prNum, ok := result.Details["pr_number"].(int); ok {
-					fmt.Printf("    ✓ Closed PR #%d\n", prNum)
-				} else {
-					fmt.Printf("    ✓ Closed\n")
-				}
+
 			default:
 				fmt.Printf("    ✓ Done\n")
 			}

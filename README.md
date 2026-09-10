@@ -35,6 +35,9 @@ See [Installation](#installation) for other install methods (Homebrew, manual do
 - **Dry-run mode** - Preview what will happen before making changes
 - **GitHub Enterprise support** - Works with both GitHub.com and GHE instances
 - **Draft PR support** - Create PRs as drafts with `--draft`
+- **Reviewed cleanup** - Prune merged bookmarks or stale drafts, and select divergent versions to keep
+- **Quick inspection** - Text/JSON status, repository diagnostics, and PR browser links
+- **Bookmark inference** - Submit the bookmarked work around `@` without typing its name
 
 ## Requirements
 
@@ -98,7 +101,7 @@ jjk completion bash > "$(brew --prefix)/etc/bash_completion.d/jjk"
 jjk completion fish > ~/.config/fish/completions/jjk.fish
 ```
 
-`submit` and `sync` then complete valid jj user bookmarks dynamically. Generate a separate script with `jj-stacked completion <shell>` if you use the long command name.
+`submit`, `sync`, and `open` then complete valid jj user bookmarks dynamically. Generate a separate script with `jj-stacked completion <shell>` if you use the long command name.
 
 ### Updating
 
@@ -168,7 +171,7 @@ This will:
 
 ### Preview Changes (Dry Run)
 
-See what would happen without making changes:
+Preview the planned writes:
 
 ```bash
 jj-stacked submit my-feature --dry-run
@@ -228,7 +231,7 @@ jjk sync user-api
 
 The bookmark selects its entire connected stack. If conflicts pause the operation, resolve them and run `jjk sync --continue`, or restore the pre-sync jj operation with `jjk sync --abort`.
 
-See [Usage Guide](docs/usage.md#merging-and-syncing-stacks) for more details on handling merges.
+See [Usage Guide](docs/usage.md#merge-and-sync) for more details on handling merges.
 
 ## Commands
 
@@ -248,9 +251,9 @@ Analyze and display bookmark stacks.
 | `--no-fetch` | Skip fetching from remotes |
 | `--debug` | Enable debug output |
 
-### `jjk submit <bookmark>`
+### `jjk submit [bookmark]`
 
-Submit a bookmark stack as pull requests.
+Submit a bookmark stack as pull requests. Without a name, infer the bookmark around `@`, or ask if several are possible. Submitting never closes PRs.
 
 | Flag | Description |
 |------|-------------|
@@ -293,6 +296,38 @@ jjk sync my-feature
 # Preview what would be synced for a specific stack
 jjk sync my-feature --dry-run
 ```
+
+### Cleanup and inspection
+
+```bash
+# Review and forget local bookmarks whose exact commit was merged
+jjk prune --merged --dry-run
+jjk prune --merged
+
+# Review old draft heads or an explicit draft range
+jjk prune --stale --older-than 30d
+jjk prune --stale --revision 'old-feature::' --older-than 30d --dry-run
+
+# Select the divergent version to retain
+jjk abandon --diverged
+jjk abandon --diverged --keep <commit-id> --dry-run
+
+# Inspect local state, or request current GitHub information
+jjk status
+jjk status --github --fetch --json
+jjk doctor
+jjk doctor --github
+
+# Open a PR; omit the bookmark to infer it from @
+jjk open my-feature
+jjk open --url
+```
+
+Prune uses local bookmark forget for merged, closed, or missing-remote candidates, preserving their changes. Stale and divergent abandonment require review of exact commit IDs and affected descendants. Scripts need an explicit scope and `--yes`; divergent cleanup also requires `--keep`. `--json` always reports without applying cleanup.
+
+Cleanup protects immutable history, remote history, and workspaces, and prints a jj operation for local recovery. See [cleanup details](docs/usage.md#prune-merged-bookmarks-and-stale-drafts), including how descendant reparenting works.
+
+Dry runs can fetch and query GitHub to produce current plans, and jj can snapshot working-copy edits. They do not perform the planned cleanup, rebase, push, or GitHub writes.
 
 ### `jjk auth test`
 
@@ -373,7 +408,7 @@ jj git remote list
 
 ## Contributing
 
-Contributions welcome! Please read the requirements in `REQUIREMENTS.md` and implementation plan in `tasks/README.md`.
+See the [behavior and architecture contract](REQUIREMENTS.md) and [audit implementation record](docs/quality-audit-plan.md). Run `make check` with jj installed. CI tests pinned jj 0.27.0 and 0.44.0 on Linux and macOS.
 
 ## License
 

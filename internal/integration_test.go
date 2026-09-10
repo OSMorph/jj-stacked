@@ -4,7 +4,6 @@ package internal
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,42 +68,31 @@ func setupTestRepo(t *testing.T) *testRepo {
 
 	executor := cmdexec.NewRealExecutorInDir(dir)
 
-	// Initialize git
-	if _, err := executor.Run(ctx, "git", "init"); err != nil {
-		cleanup()
-		t.Fatalf("failed to init git: %v", err)
+	// Build the fixture through jj; no Git commits or host identity changes.
+	for _, args := range [][]string{
+		{"git", "init", "--colocate"},
+		{"config", "set", "--repo", "user.name", "Test User"},
+		{"config", "set", "--repo", "user.email", "test@example.com"},
+	} {
+		if _, err := executor.Run(ctx, "jj", args...); err != nil {
+			cleanup()
+			t.Fatalf("initialize jj fixture: %v", err)
+		}
 	}
-
-	// Configure git user (required for commits)
-	if _, err := executor.Run(ctx, "git", "config", "user.email", "test@example.com"); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Test Repository\n"), 0o644); err != nil {
 		cleanup()
-		t.Fatalf("failed to configure git email: %v", err)
+		t.Fatal(err)
 	}
-	if _, err := executor.Run(ctx, "git", "config", "user.name", "Test User"); err != nil {
-		cleanup()
-		t.Fatalf("failed to configure git name: %v", err)
-	}
-
-	// Create initial commit (git requires at least one commit for jj)
-	readmePath := filepath.Join(dir, "README.md")
-	if err := os.WriteFile(readmePath, []byte("# Test Repository\n"), 0o644); err != nil {
-		cleanup()
-		t.Fatalf("failed to write README: %v", err)
-	}
-
-	if _, err := executor.Run(ctx, "git", "add", "."); err != nil {
-		cleanup()
-		t.Fatalf("failed to git add: %v", err)
-	}
-	if _, err := executor.Run(ctx, "git", "commit", "-m", "Initial commit"); err != nil {
-		cleanup()
-		t.Fatalf("failed to git commit: %v", err)
-	}
-
-	// Initialize jj colocated repo
-	if _, err := executor.Run(ctx, "jj", "git", "init", "--colocate"); err != nil {
-		cleanup()
-		t.Fatalf("failed to init jj: %v", err)
+	for _, args := range [][]string{
+		{"describe", "-m", "Initial commit"},
+		{"bookmark", "create", "main"},
+		{"config", "set", "--repo", `revset-aliases."trunk()"`, "main"},
+		{"new"},
+	} {
+		if _, err := executor.Run(ctx, "jj", args...); err != nil {
+			cleanup()
+			t.Fatalf("initialize trunk: %v", err)
+		}
 	}
 
 	return &testRepo{
@@ -291,9 +279,15 @@ func TestIntegration_BookmarkScopedGraphIgnoresDivergentUnrelatedStack(t *testin
 	if _, err := repo.exec.Run(ctx, "jj", "--at-operation", operationID, "describe", "-m", "unrelated version b"); err != nil {
 		t.Fatal(err)
 	}
-	divergent, err := jj.GetLog(ctx, fmt.Sprintf("change_id(%s)", unrelated.ChangeID), 0)
+	variants, err := jj.ListDivergentChanges(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	var divergent []jjutils.LogEntry
+	for i := range variants {
+		if variants[i].ChangeID == unrelated.ChangeID {
+			divergent = append(divergent, variants[i])
+		}
 	}
 	if len(divergent) != 2 {
 		t.Fatalf("divergent revisions = %d, want 2", len(divergent))
@@ -571,7 +565,7 @@ func TestIntegration_SubmitDryRun(t *testing.T) {
 			pushCount++
 		case submit.ActionCreatePR:
 			createCount++
-		case submit.ActionUpdateBase, submit.ActionSyncComment, submit.ActionClosePR:
+		case submit.ActionUpdateBase, submit.ActionSyncComment:
 			// Not counting these action types in this test
 		}
 	}

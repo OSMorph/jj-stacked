@@ -1,10 +1,14 @@
 package sync
 
 import (
+	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/OSMorph/jj-stacked/internal/github"
 	"github.com/OSMorph/jj-stacked/internal/jjutils"
 )
 
@@ -53,4 +57,21 @@ func mergedNames(values []MergedBookmark) []string {
 		result[i] = values[i].Name
 	}
 	return result
+}
+
+func TestMergedDetectionPreservesReusedOrUnverifiedBookmarkHeads(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	reviewed := strings.Repeat("a", 40)
+	client := &mergedGitHub{prs: map[string]*github.PullRequest{"feature": {Number: 1, HeadSHA: reviewed, Merged: true, MergedAt: &now}}}
+	for _, id := range []string{reviewed, strings.Repeat("b", 40), "", reviewed[:12]} {
+		merged, warnings := DetectMergedBookmarks(ctx, []jjutils.Bookmark{{Name: "feature", CommitID: id}}, client, "o", "r")
+		if id == reviewed {
+			if len(merged) != 1 || len(warnings) != 0 {
+				t.Fatalf("verified head was not recognized: %v %v", merged, warnings)
+			}
+		} else if len(merged) != 0 || len(warnings) != 1 {
+			t.Fatalf("unverified head %q accepted: %v %v", id, merged, warnings)
+		}
+	}
 }

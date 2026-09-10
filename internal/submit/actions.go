@@ -27,23 +27,16 @@ func (a *PushAction) Description() string {
 }
 
 // Execute implements SubmissionAction.
-func (a *PushAction) Execute(ctx context.Context, deps *ActionDeps) (*ActionResult, error) {
-	result := &ActionResult{
-		Action:  a,
-		Details: make(map[string]any),
-	}
+func (a *PushAction) Execute(ctx context.Context, deps *ActionDeps) ActionResult {
+	result := ActionResult{Action: a}
 
 	err := deps.JJ.Push(ctx, deps.Remote, a.Bookmark)
 	if err != nil {
-		result.Success = false
 		result.Error = fmt.Errorf("failed to push bookmark '%s': %w", a.Bookmark, err)
-		return result, result.Error
+		return result
 	}
 
-	result.Success = true
-	result.Details["bookmark"] = a.Bookmark
-	result.Details["remote"] = deps.Remote
-	return result, nil
+	return result
 }
 
 // CreatePRAction creates a new pull request.
@@ -66,11 +59,8 @@ func (a *CreatePRAction) Description() string {
 }
 
 // Execute implements SubmissionAction.
-func (a *CreatePRAction) Execute(ctx context.Context, deps *ActionDeps) (*ActionResult, error) {
-	result := &ActionResult{
-		Action:  a,
-		Details: make(map[string]any),
-	}
+func (a *CreatePRAction) Execute(ctx context.Context, deps *ActionDeps) ActionResult {
+	result := ActionResult{Action: a}
 
 	req := &github.CreatePRRequest{
 		Title: a.Title,
@@ -82,17 +72,14 @@ func (a *CreatePRAction) Execute(ctx context.Context, deps *ActionDeps) (*Action
 
 	pr, err := deps.GitHub.CreatePullRequest(ctx, deps.Owner, deps.Repo, req)
 	if err != nil {
-		result.Success = false
 		result.Error = fmt.Errorf("failed to create PR for '%s': %w", a.Bookmark, err)
-		return result, result.Error
+		return result
 	}
 
-	result.Success = true
-	result.Details["pr_number"] = pr.Number
-	result.Details["pr_url"] = pr.URL
-	result.Details["bookmark"] = a.Bookmark
-	result.Details["base"] = a.BaseBranch
-	return result, nil
+	result.PRNumber = pr.Number
+	result.CreatedPR = pr
+	result.Bookmark = a.Bookmark
+	return result
 }
 
 // UpdateBaseAction updates the base branch of an existing PR.
@@ -114,11 +101,8 @@ func (a *UpdateBaseAction) Description() string {
 }
 
 // Execute implements SubmissionAction.
-func (a *UpdateBaseAction) Execute(ctx context.Context, deps *ActionDeps) (*ActionResult, error) {
-	result := &ActionResult{
-		Action:  a,
-		Details: make(map[string]any),
-	}
+func (a *UpdateBaseAction) Execute(ctx context.Context, deps *ActionDeps) ActionResult {
+	result := ActionResult{Action: a}
 
 	req := &github.UpdatePRRequest{
 		Base: &a.NewBase,
@@ -126,16 +110,12 @@ func (a *UpdateBaseAction) Execute(ctx context.Context, deps *ActionDeps) (*Acti
 
 	_, err := deps.GitHub.UpdatePullRequest(ctx, deps.Owner, deps.Repo, a.PRNumber, req)
 	if err != nil {
-		result.Success = false
 		result.Error = fmt.Errorf("failed to update base for PR #%d: %w", a.PRNumber, err)
-		return result, result.Error
+		return result
 	}
 
-	result.Success = true
-	result.Details["pr_number"] = a.PRNumber
-	result.Details["old_base"] = a.OldBase
-	result.Details["new_base"] = a.NewBase
-	return result, nil
+	result.PRNumber = a.PRNumber
+	return result
 }
 
 // SyncCommentAction creates or updates the stack navigation comment on a PR.
@@ -158,21 +138,26 @@ func (a *SyncCommentAction) Description() string {
 }
 
 // Execute implements SubmissionAction.
-func (a *SyncCommentAction) Execute(ctx context.Context, deps *ActionDeps) (*ActionResult, error) {
-	result := &ActionResult{
-		Action:  a,
-		Details: make(map[string]any),
-	}
+func (a *SyncCommentAction) Execute(ctx context.Context, deps *ActionDeps) ActionResult {
+	result := ActionResult{Action: a}
 
-	// Build the comment body
-	commentBody := github.BuildStackComment(a.StackEntries, a.Bookmark, a.BaseBranch, a.MergedHistory)
+	prNumber := a.PRNumber
+	if prNumber == 0 {
+		if pr := deps.createdPRs[a.Bookmark]; pr != nil {
+			prNumber = pr.Number
+		} else {
+			result.Skipped = true
+			return result
+		}
+	}
+	entries := updateStackEntries(a.StackEntries, deps.createdPRs)
+	commentBody := github.BuildStackComment(entries, a.Bookmark, a.BaseBranch, a.MergedHistory)
 
 	// List existing comments to find our comment
-	comments, err := deps.GitHub.ListComments(ctx, deps.Owner, deps.Repo, a.PRNumber)
+	comments, err := deps.GitHub.ListComments(ctx, deps.Owner, deps.Repo, prNumber)
 	if err != nil {
-		result.Success = false
-		result.Error = fmt.Errorf("failed to list comments on PR #%d: %w", a.PRNumber, err)
-		return result, result.Error
+		result.Error = fmt.Errorf("failed to list comments on PR #%d: %w", prNumber, err)
+		return result
 	}
 
 	// Find existing jj-stacked comment
@@ -180,6 +165,12 @@ func (a *SyncCommentAction) Execute(ctx context.Context, deps *ActionDeps) (*Act
 	for _, comment := range comments {
 		if github.IsStackComment(comment.Body) {
 			existingCommentID = comment.ID
+			if comment.Body == commentBody {
+				result.Unchanged = true
+				result.CommentID = comment.ID
+				result.PRNumber = prNumber
+				return result
+			}
 			break
 		}
 	}
@@ -188,70 +179,22 @@ func (a *SyncCommentAction) Execute(ctx context.Context, deps *ActionDeps) (*Act
 		// Update existing comment
 		_, err = deps.GitHub.UpdateComment(ctx, deps.Owner, deps.Repo, existingCommentID, commentBody)
 		if err != nil {
-			result.Success = false
-			result.Error = fmt.Errorf("failed to update comment on PR #%d: %w", a.PRNumber, err)
-			return result, result.Error
+			result.Error = fmt.Errorf("failed to update comment on PR #%d: %w", prNumber, err)
+			return result
 		}
-		result.Details["action"] = "updated"
-		result.Details["comment_id"] = existingCommentID
+		result.CommentID = existingCommentID
 	} else {
 		// Create new comment
-		comment, err := deps.GitHub.CreateComment(ctx, deps.Owner, deps.Repo, a.PRNumber, commentBody)
+		comment, err := deps.GitHub.CreateComment(ctx, deps.Owner, deps.Repo, prNumber, commentBody)
 		if err != nil {
-			result.Success = false
-			result.Error = fmt.Errorf("failed to create comment on PR #%d: %w", a.PRNumber, err)
-			return result, result.Error
+			result.Error = fmt.Errorf("failed to create comment on PR #%d: %w", prNumber, err)
+			return result
 		}
-		result.Details["action"] = "created"
-		result.Details["comment_id"] = comment.ID
+		result.CommentID = comment.ID
 	}
 
-	result.Success = true
-	result.Details["pr_number"] = a.PRNumber
-	return result, nil
-}
-
-// ClosePRAction closes an orphaned PR (PR whose head branch no longer exists on the remote).
-type ClosePRAction struct {
-	PRNumber int
-	Branch   string // The branch name that no longer exists
-	Reason   string // Why the PR is being closed
-}
-
-// Type implements SubmissionAction.
-func (a *ClosePRAction) Type() ActionType {
-	return ActionClosePR
-}
-
-// Description implements SubmissionAction.
-func (a *ClosePRAction) Description() string {
-	return fmt.Sprintf("Close orphaned PR #%d (branch '%s' no longer exists on remote)", a.PRNumber, a.Branch)
-}
-
-// Execute implements SubmissionAction.
-func (a *ClosePRAction) Execute(ctx context.Context, deps *ActionDeps) (*ActionResult, error) {
-	result := &ActionResult{
-		Action:  a,
-		Details: make(map[string]any),
-	}
-
-	closedState := "closed"
-	req := &github.UpdatePRRequest{
-		State: &closedState,
-	}
-
-	_, err := deps.GitHub.UpdatePullRequest(ctx, deps.Owner, deps.Repo, a.PRNumber, req)
-	if err != nil {
-		result.Success = false
-		result.Error = fmt.Errorf("failed to close PR #%d: %w", a.PRNumber, err)
-		return result, result.Error
-	}
-
-	result.Success = true
-	result.Details["pr_number"] = a.PRNumber
-	result.Details["branch"] = a.Branch
-	result.Details["reason"] = a.Reason
-	return result, nil
+	result.PRNumber = prNumber
+	return result
 }
 
 // Ensure all action types implement SubmissionAction
@@ -260,5 +203,4 @@ var (
 	_ SubmissionAction = (*CreatePRAction)(nil)
 	_ SubmissionAction = (*UpdateBaseAction)(nil)
 	_ SubmissionAction = (*SyncCommentAction)(nil)
-	_ SubmissionAction = (*ClosePRAction)(nil)
 )

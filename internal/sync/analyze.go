@@ -46,7 +46,7 @@ func AnalyzeSyncWithOptions(
 	owner, repo string,
 	opts AnalyzeOptions,
 ) (*SyncAnalysis, error) {
-	analysis := &SyncAnalysis{Remote: opts.Remote}
+	analysis := &SyncAnalysis{Remote: opts.Remote, RebaseSources: make(map[string]string)}
 	if analysis.Remote == "" {
 		analysis.Remote = "origin"
 	}
@@ -61,7 +61,7 @@ func AnalyzeSyncWithOptions(
 	} else {
 		analysis.TrunkBranch = opts.TrunkBranch
 	}
-	target := fmt.Sprintf("%s@%s", analysis.TrunkBranch, analysis.Remote)
+	target := jjutils.RemoteBookmarkRevset(analysis.TrunkBranch, analysis.Remote)
 	entries, err := jj.GetLog(ctx, target, 1)
 	if err != nil {
 		return nil, fmt.Errorf("resolve selected remote trunk %s: %w", target, err)
@@ -101,11 +101,61 @@ func AnalyzeSyncWithOptions(
 
 	// Step 3.5: Select either the whole connected stack or every stack.
 	var bookmarkNames []string
+	incorporatedNames := make(map[string]bool)
 	if opts.Bookmark != "" {
 		bookmarkNames = graph.GetConnectedBookmarks(opts.Bookmark)
 		if len(bookmarkNames) == 0 {
-			if _, exists := remoteStatus[opts.Bookmark]; !exists {
+			anchor, exists := remoteStatus[opts.Bookmark]
+			if !exists {
 				return nil, fmt.Errorf("bookmark %q not found in any stack", opts.Bookmark)
+			}
+			// Several consecutive stack bookmarks can disappear into fetched
+			// trunk at once. Retain that exact incorporated lineage as both
+			// cleanup scope and the boundary for surviving draft roots. Draft
+			// descendants of A alone do not establish stack membership.
+			incorporatedTargets := make(map[string]bool)
+			for _, candidate := range remoteBookmarks {
+				if candidate.Name == analysis.TrunkBranch {
+					continue
+				}
+				inTrunk, err := jj.IsAncestor(ctx, candidate.CommitID, target)
+				if err != nil {
+					return nil, fmt.Errorf("inspect incorporated scope for %s: %w", candidate.Name, err)
+				}
+				if !inTrunk {
+					continue
+				}
+				inLineage, err := jj.IsAncestor(ctx, anchor.CommitID, candidate.CommitID)
+				if err != nil {
+					return nil, fmt.Errorf("inspect selected lineage for %s: %w", candidate.Name, err)
+				}
+				if inLineage {
+					incorporatedNames[candidate.Name] = true
+					incorporatedTargets[candidate.CommitID] = true
+				}
+			}
+			seen := make(map[string]bool)
+			for _, root := range graph.Roots {
+				segment := graph.Segments[root]
+				if segment == nil || len(segment.Changes) == 0 {
+					continue
+				}
+				fromLineage := false
+				for _, parent := range segment.Changes[0].Parents {
+					if incorporatedTargets[parent] {
+						fromLineage = true
+						break
+					}
+				}
+				if !fromLineage {
+					continue
+				}
+				for _, name := range graph.GetConnectedBookmarks(root) {
+					if !seen[name] {
+						bookmarkNames = append(bookmarkNames, name)
+						seen[name] = true
+					}
+				}
 			}
 		}
 	} else {
@@ -146,18 +196,17 @@ func AnalyzeSyncWithOptions(
 		anchor = remoteStatus[opts.Bookmark]
 	}
 	for _, candidate := range remoteBookmarks {
-		if detected[candidate.Name] || candidate.Name == "main" || candidate.Name == "master" || candidate.Name == "trunk" {
+		if detected[candidate.Name] || candidate.Name == analysis.TrunkBranch {
 			continue
 		}
-		include := opts.Bookmark == ""
-		if !include && anchor.ChangeID != "" {
-			ancestor, ancestorErr := jj.IsAncestor(ctx, candidate.ChangeID, anchor.ChangeID)
-			descendant, descendantErr := jj.IsAncestor(ctx, anchor.ChangeID, candidate.ChangeID)
-			if ancestorErr != nil || descendantErr != nil {
+		include := opts.Bookmark == "" || incorporatedNames[candidate.Name]
+		if !include && anchor.CommitID != "" {
+			ancestor, err := jj.IsAncestor(ctx, candidate.CommitID, anchor.CommitID)
+			if err != nil {
 				analysis.Warnings = append(analysis.Warnings, fmt.Sprintf("could not determine whether bookmark %s belongs to selected stack", candidate.Name))
 				continue
 			}
-			include = ancestor || descendant
+			include = ancestor
 		}
 		if include {
 			detectionBookmarks = append(detectionBookmarks, candidate)
@@ -177,17 +226,33 @@ func AnalyzeSyncWithOptions(
 	for _, e := range detectErrors {
 		analysis.Warnings = append(analysis.Warnings, e.Error())
 	}
+	verifiedMerged := make([]MergedBookmark, 0, len(mergedBookmarks))
 	for i := range mergedBookmarks {
-		inTrunk, err := jj.IsAncestor(ctx, mergedBookmarks[i].ChangeID, target)
+		merged := &mergedBookmarks[i]
+		inTrunk, err := jj.IsAncestor(ctx, merged.CommitID, target)
 		if err != nil {
-			analysis.Errors = append(analysis.Errors, fmt.Errorf("determine whether merged bookmark %s is already in trunk: %w", mergedBookmarks[i].Name, err))
+			analysis.Errors = append(analysis.Errors, fmt.Errorf("determine whether merged bookmark %s is already in trunk: %w", merged.Name, err))
 			continue
 		}
-		mergedBookmarks[i].InTrunk = inTrunk
+		merged.InTrunk = inTrunk
+		if !inTrunk {
+			segment := graph.Segments[merged.Name]
+			if segment == nil || len(segment.Changes) == 0 || segment.Changes[len(segment.Changes)-1].CommitID != merged.CommitID {
+				analysis.Warnings = append(analysis.Warnings, fmt.Sprintf("cannot establish complete merged segment for %s; preserving it for review", merged.Name))
+				continue
+			}
+			for i := range segment.Changes {
+				merged.Commits = append(merged.Commits, segment.Changes[i].CommitID)
+			}
+		}
+		verifiedMerged = append(verifiedMerged, *merged)
 	}
 
+	verifiedMerged, proofErrors := proveMergedDestinations(ctx, jj, verifiedMerged, analysis.TrunkBranch, target)
+	analysis.Errors = append(analysis.Errors, proofErrors...)
+
 	// Step 5: Filter to only contiguous merged bookmarks from bottom of stack
-	contiguousMerged, gapErrors := FilterMergedFromBottom(mergedBookmarks, graph)
+	contiguousMerged, gapErrors := FilterMergedFromBottom(verifiedMerged, graph)
 	analysis.Errors = append(analysis.Errors, gapErrors...)
 	analysis.MergedBookmarks = contiguousMerged
 
@@ -216,6 +281,12 @@ func AnalyzeSyncWithOptions(
 		}
 		if !basedOnTrunk || len(contiguousMerged) > 0 {
 			analysis.RebaseRoots = append(analysis.RebaseRoots, name)
+			segment := graph.Segments[name]
+			if segment == nil || len(segment.Changes) == 0 {
+				analysis.Errors = append(analysis.Errors, fmt.Errorf("cannot establish complete rebase segment for %s", name))
+				continue
+			}
+			analysis.RebaseSources[name] = segment.Changes[0].ChangeID
 		}
 	}
 

@@ -40,3 +40,6 @@ __debug_bin*
 bin/
 dist/
 AGENTS.md
+
+# Project-local compatibility test binaries
+.tools/
