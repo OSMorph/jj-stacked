@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/OSMorph/jj-stacked/internal/jjutils"
 )
 
 // AIDEV-NOTE: CreateSyncPlan is the second phase of the three-phase sync architecture.
@@ -19,17 +21,28 @@ func CreateSyncPlan(analysis *SyncAnalysis) (*SyncPlan, error) {
 	}
 
 	plan := &SyncPlan{
-		Analysis: analysis,
-		Remote:   analysis.Remote,
+		Analysis:         analysis,
+		Remote:           analysis.Remote,
+		CleanupHeads:     make(map[string]string),
+		CleanupProofs:    make(map[string]string),
+		RefreshBookmarks: append([]string{}, analysis.RemainingBookmarks...),
+		RebaseSources:    analysis.RebaseSources,
 	}
 
 	// Order bookmarks to abandon (should already be in bottom-up order from analysis)
 	mergedSet := make(map[string]bool, len(analysis.MergedBookmarks))
-	for _, m := range analysis.MergedBookmarks {
+	for i := range analysis.MergedBookmarks {
+		m := &analysis.MergedBookmarks[i]
+		plan.CleanupHeads[m.Name] = m.CommitID
+		plan.CleanupProofs[m.Name] = m.LandedCommitID
 		if m.InTrunk {
 			plan.ToDelete = append(plan.ToDelete, m.Name)
 		} else {
+			if len(m.Commits) == 0 {
+				return nil, fmt.Errorf("merged bookmark %s has no reviewed segment; refusing cleanup", m.Name)
+			}
 			plan.ToAbandon = append(plan.ToAbandon, m.Name)
+			plan.AbandonCommits = mergeUnique(plan.AbandonCommits, m.Commits)
 		}
 		mergedSet[m.Name] = true
 	}
@@ -43,7 +56,7 @@ func CreateSyncPlan(analysis *SyncAnalysis) (*SyncPlan, error) {
 
 	plan.RebaseRoots = append([]string(nil), analysis.RebaseRoots...)
 	plan.NeedsRebase = len(plan.RebaseRoots) > 0
-	plan.RebaseTarget = fmt.Sprintf("%s@%s", analysis.TrunkBranch, analysis.Remote)
+	plan.RebaseTarget = jjutils.RemoteBookmarkRevset(analysis.TrunkBranch, analysis.Remote)
 	plan.ToRebase = analysis.RemainingBookmarks
 	if plan.NeedsRebase {
 		plan.ToPush = mergeUnique(plan.ToPush, plan.ToRebase)
@@ -99,7 +112,8 @@ func FormatPlan(plan *SyncPlan) string {
 		mergedNames := append(append([]string(nil), plan.ToDelete...), plan.ToAbandon...)
 		for i, name := range mergedNames {
 			// Find the corresponding merged bookmark for details
-			for _, m := range plan.Analysis.MergedBookmarks {
+			for j := range plan.Analysis.MergedBookmarks {
+				m := &plan.Analysis.MergedBookmarks[j]
 				if m.Name != name {
 					continue
 				}
@@ -108,7 +122,7 @@ func FormatPlan(plan *SyncPlan) string {
 					sb.WriteString(fmt.Sprintf(", merged %s", formatTimeAgo(m.MergedAt)))
 				}
 				if m.InTrunk {
-					sb.WriteString(", delete bookmark only")
+					sb.WriteString(", forget local bookmark only")
 				}
 				sb.WriteString(")\n")
 				break

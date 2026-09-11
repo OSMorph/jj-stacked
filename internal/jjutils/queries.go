@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	apperrors "github.com/OSMorph/jj-stacked/internal/errors"
 )
@@ -28,18 +30,22 @@ const (
 //
 // Note: jj only interprets escape sequences in double quotes, so we use \"\\x1f\" for delimiters.
 const logEntryTemplate = "concat(" +
-	"commit_id.short(), \"\\x1f\"," +
-	"change_id.short(), \"\\x1f\"," +
+	"commit_id, \"\\x1f\"," +
+	"change_id, \"\\x1f\"," +
 	"author.name(), \"\\x1f\"," +
 	"author.email(), \"\\x1f\"," +
 	"description.first_line(), \"\\x1f\"," +
 	"description, \"\\x1f\"," +
-	"parents.map(|p| p.commit_id().short()).join(\",\"), \"\\x1f\"," +
+	"parents.map(|p| p.commit_id()).join(\",\"), \"\\x1f\"," +
 	"local_bookmarks.join(\",\"), \"\\x1f\"," +
 	"remote_bookmarks.join(\",\"), \"\\x1f\"," +
 	"if(current_working_copy, \"true\", \"false\"), \"\\x1f\"," +
 	"if(empty, \"true\", \"false\"), \"\\x1f\"," +
-	"if(conflict, \"true\", \"false\")," +
+	"if(conflict, \"true\", \"false\"), \"\\x1f\"," +
+	"if(divergent, \"true\", \"false\"), \"\\x1f\"," +
+	"if(immutable, \"true\", \"false\"), \"\\x1f\"," +
+	"if(working_copies, \"true\", \"false\"), \"\\x1f\"," +
+	"committer.timestamp().format(\"%Y-%m-%dT%H:%M:%S%:z\")," +
 	"\"\\x1e\"" +
 	")"
 
@@ -54,8 +60,8 @@ const bookmarkTemplate = "if(" +
 	"self.normal_target()," +
 	"concat(" +
 	"name, \"\\x1f\"," +
-	"self.normal_target().commit_id().short(), \"\\x1f\"," +
-	"self.normal_target().change_id().short(), \"\\x1f\"," +
+	"self.normal_target().commit_id(), \"\\x1f\"," +
+	"self.normal_target().change_id(), \"\\x1f\"," +
 	"\"false\", \"\\x1f\"," + // has_remote placeholder
 	"\"false\"," + // is_synced placeholder
 	"\"\\x1e\"" +
@@ -159,7 +165,17 @@ func (j *jjFunctions) GetTrunkInfo(ctx context.Context) (*TrunkInfo, error) {
 
 // GetLog retrieves changes matching the revset.
 func (j *jjFunctions) GetLog(ctx context.Context, revset string, limit int) ([]LogEntry, error) {
-	args := []string{"log", "--no-graph", "-r", revset, "-T", logEntryTemplate}
+	return j.getLog(ctx, revset, limit, logEntryTemplate)
+}
+
+// ListDivergentChanges uses a template filter supported by the oldest jj version.
+// Filtering in jj avoids transferring all of immutable history to the CLI.
+func (j *jjFunctions) ListDivergentChanges(ctx context.Context) ([]LogEntry, error) {
+	return j.getLog(ctx, "all()", 0, "if(divergent, "+logEntryTemplate+", \"\")")
+}
+
+func (j *jjFunctions) getLog(ctx context.Context, revset string, limit int, template string) ([]LogEntry, error) {
+	args := []string{"log", "--no-graph", "-r", revset, "-T", template}
 	if limit > 0 {
 		args = append(args, "--limit", fmt.Sprintf("%d", limit))
 	}
@@ -248,6 +264,16 @@ func parseLogEntries(output string) ([]LogEntry, error) {
 			IsEmpty:              fields[10] == "true",
 			Conflict:             fields[11] == "true",
 		}
+		if len(fields) >= 16 {
+			entry.Divergent = fields[12] == "true"
+			entry.Immutable = fields[13] == "true"
+			entry.HasWorkingCopy = fields[14] == "true"
+			var err error
+			entry.CommittedAt, err = time.Parse(time.RFC3339, fields[15])
+			if err != nil {
+				return nil, fmt.Errorf("parse commit timestamp: %w", err)
+			}
+		}
 		entries = append(entries, entry)
 	}
 
@@ -311,6 +337,26 @@ func (j *jjFunctions) DeleteBookmark(ctx context.Context, name string) error {
 		return &apperrors.JJError{Command: j.jjCmd(), Args: args, Err: err}
 	}
 	return nil
+}
+
+// ForgetBookmark removes a local bookmark without scheduling a remote deletion.
+func (j *jjFunctions) ForgetBookmark(ctx context.Context, name string) error {
+	args := []string{"bookmark", "forget", "exact:" + name}
+	_, err := j.exec.Run(ctx, j.jjCmd(), args...)
+	if err != nil {
+		return &apperrors.JJError{Command: j.jjCmd(), Args: args, Err: err}
+	}
+	return nil
+}
+
+// BookmarkRevset selects a literal bookmark name regardless of pattern defaults.
+func BookmarkRevset(name string) string {
+	return "bookmarks(exact:" + strconv.Quote(name) + ")"
+}
+
+// RemoteBookmarkRevset selects a literal bookmark on one remote.
+func RemoteBookmarkRevset(name, remote string) string {
+	return "remote_bookmarks(exact:" + strconv.Quote(name) + ", exact:" + strconv.Quote(remote) + ")"
 }
 
 // Rebase rebases changes onto a new destination.

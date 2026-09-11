@@ -44,6 +44,15 @@ func ExecuteSyncWithState(ctx context.Context, plan *SyncPlan, state *SyncState,
 		if !hasConflicts {
 			return false
 		}
+		canFinish, err := canFinishPendingRebases(ctx, jj, state)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("inspect pending rebase conflicts: %w", err))
+			result.Success = false
+			return true
+		}
+		if canFinish {
+			return false
+		}
 		result.HasConflicts = true
 		result.Success = false
 		files, err := jj.GetConflictFiles(ctx)
@@ -54,6 +63,16 @@ func ExecuteSyncWithState(ctx context.Context, plan *SyncPlan, state *SyncState,
 		state.SetConflictFiles(files)
 		checkpoint("conflict")
 		return true
+	}
+
+	if checkConflicts() {
+		return result
+	}
+	if err := validateCleanup(ctx, plan, state, jj); err != nil {
+		result.Errors = append(result.Errors, err)
+		result.Success = false
+		checkpoint("cleanup-blocked")
+		return result
 	}
 
 	for _, bookmark := range plan.ToDelete {
@@ -78,7 +97,13 @@ func ExecuteSyncWithState(ctx context.Context, plan *SyncPlan, state *SyncState,
 		if callbacks != nil && callbacks.OnDelete != nil {
 			callbacks.OnDelete(bookmark)
 		}
-		err = jj.DeleteBookmark(ctx, bookmark)
+		if err := validateCleanup(ctx, plan, state, jj); err != nil {
+			result.Errors = append(result.Errors, err)
+			result.Success = false
+			checkpoint("cleanup-blocked")
+			return result
+		}
+		err = jj.ForgetBookmark(ctx, bookmark)
 		if callbacks != nil && callbacks.OnDeleteComplete != nil {
 			callbacks.OnDeleteComplete(bookmark, err)
 		}
@@ -95,44 +120,77 @@ func ExecuteSyncWithState(ctx context.Context, plan *SyncPlan, state *SyncState,
 		}
 	}
 
+	if pendingAbandon(plan, state) {
+		// Validate again immediately before the single abandonment operation.
+		if err := validateCleanup(ctx, plan, state, jj); err != nil {
+			result.Errors = append(result.Errors, err)
+			result.Success = false
+			checkpoint("cleanup-blocked")
+			return result
+		}
+		if callbacks != nil && callbacks.OnAbandon != nil {
+			for _, bookmark := range plan.ToAbandon {
+				callbacks.OnAbandon(bookmark)
+			}
+		}
+		err := jj.Abandon(ctx, strings.Join(plan.AbandonCommits, " | "))
+		if callbacks != nil && callbacks.OnAbandonComplete != nil {
+			for _, bookmark := range plan.ToAbandon {
+				callbacks.OnAbandonComplete(bookmark, err)
+			}
+		}
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("abandon reviewed merged segments: %w", err))
+			result.Success = false
+			checkpoint("abandon-failed")
+			return result
+		}
+		for _, bookmark := range plan.ToAbandon {
+			result.Abandoned = append(result.Abandoned, bookmark)
+			state.MarkStepComplete("abandon:" + bookmark)
+		}
+		if !checkpoint("abandon") {
+			return result
+		}
+	}
+
+	// Abandon while the reviewed heads are still tracked and mutable, then
+	// forget their local references before any rebase or push. Colocated Git
+	// imports may retain the exact old head; a moved/reused name is protected. Forgetting
+	// first can make their untracked remote commits immutable in jj.
 	for _, bookmark := range plan.ToAbandon {
-		step := "abandon:" + bookmark
-		if state.StepComplete(step) {
+		step := "forget:" + bookmark
+		if state.StepComplete(step) || !contains(state.PendingSteps, step) {
 			continue
 		}
-		existing, err := getExistingBookmarks(ctx, jj)
+		bookmarks, err := jj.ListLocalBookmarks(ctx)
 		if err != nil {
 			result.Errors = append(result.Errors, err)
 			result.Success = false
-			checkpoint("abandon-failed")
+			checkpoint("forget-failed")
 			return result
 		}
-		if !existing[bookmark] {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("bookmark %s no longer exists; skipping abandon", bookmark))
-			state.MarkStepComplete(step)
-			if !checkpoint("abandon") {
+		for _, current := range bookmarks {
+			if current.Name == bookmark && current.CommitID != plan.CleanupHeads[bookmark] {
+				result.Errors = append(result.Errors, fmt.Errorf("bookmark %s was recreated after abandonment at %s (reviewed %s); preserving it; abort and replan", bookmark, current.CommitID, plan.CleanupHeads[bookmark]))
+				result.Success = false
+				checkpoint("forget-blocked")
 				return result
 			}
-			continue
 		}
-		if callbacks != nil && callbacks.OnAbandon != nil {
-			callbacks.OnAbandon(bookmark)
-		}
-		err = jj.Abandon(ctx, bookmark)
-		if callbacks != nil && callbacks.OnAbandonComplete != nil {
-			callbacks.OnAbandonComplete(bookmark, err)
-		}
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("abandon %s: %w", bookmark, err))
+		if err := jj.ForgetBookmark(ctx, bookmark); err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("forget deleted merged bookmark %s before pushing: %w", bookmark, err))
 			result.Success = false
-			checkpoint("abandon-failed")
+			checkpoint("forget-failed")
 			return result
 		}
-		result.Abandoned = append(result.Abandoned, bookmark)
 		state.MarkStepComplete(step)
-		if !checkpoint("abandon") || checkConflicts() {
+		if !checkpoint("forget") {
 			return result
 		}
+	}
+	if len(plan.ToAbandon) > 0 && checkConflicts() {
+		return result
 	}
 
 	if callbacks != nil && callbacks.OnRebaseStart != nil && len(plan.RebaseRoots) > 0 {
@@ -155,11 +213,30 @@ func ExecuteSyncWithState(ctx context.Context, plan *SyncPlan, state *SyncState,
 			}
 			continue
 		}
-		based, err := jj.IsAncestor(ctx, plan.RebaseTarget, root)
+		source := jjutils.BookmarkRevset(root)
+		if changeID := plan.RebaseSources[root]; changeID != "" {
+			entries, sourceErr := jj.GetLog(ctx, changeID, 2)
+			if sourceErr != nil || len(entries) != 1 {
+				rebaseErr = fmt.Errorf("rebase source for %s is missing or divergent; resolve it before continuing", root)
+			} else {
+				source = entries[0].CommitID
+				ancestor, ancestorErr := jj.IsAncestor(ctx, source, jjutils.BookmarkRevset(root))
+				if ancestorErr != nil || !ancestor {
+					rebaseErr = fmt.Errorf("bookmark %s moved outside its reviewed segment; abort and replan sync", root)
+				}
+			}
+		}
+		if rebaseErr != nil {
+			result.Errors = append(result.Errors, rebaseErr)
+			result.Success = false
+			checkpoint("rebase-failed")
+			return result
+		}
+		based, err := jj.IsAncestor(ctx, plan.RebaseTarget, source)
 		if err != nil {
 			rebaseErr = fmt.Errorf("check rebase target for %s: %w", root, err)
 		} else if !based {
-			rebaseErr = jj.Rebase(ctx, root, plan.RebaseTarget)
+			rebaseErr = jj.Rebase(ctx, source, plan.RebaseTarget)
 		}
 		if rebaseErr != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("rebase %s onto %s failed: %w", root, plan.RebaseTarget, rebaseErr))
@@ -180,6 +257,10 @@ func ExecuteSyncWithState(ctx context.Context, plan *SyncPlan, state *SyncState,
 	}
 	if len(plan.RebaseRoots) > 0 {
 		result.Rebased = append(result.Rebased, plan.ToRebase...)
+	}
+
+	if checkConflicts() {
+		return result
 	}
 
 	existing, err := getExistingBookmarks(ctx, jj)

@@ -124,9 +124,12 @@ func CreateInitialState(plan *SyncPlan, operationID, bookmark string, noResubmit
 		pendingSteps = append(pendingSteps, fmt.Sprintf("delete:%s", bm))
 	}
 
-	// Add abandon steps
+	// Clear deleted local references after abandonment and before any push.
 	for _, bm := range plan.ToAbandon {
 		pendingSteps = append(pendingSteps, fmt.Sprintf("abandon:%s", bm))
+		if plan.CleanupHeads[bm] != "" {
+			pendingSteps = append(pendingSteps, fmt.Sprintf("forget:%s", bm))
+		}
 	}
 
 	// Add rebase step if needed
@@ -192,4 +195,22 @@ func (s *SyncState) SetConflictFiles(files []string) {
 // IsComplete returns true if all steps are completed.
 func (s *SyncState) IsComplete() bool {
 	return len(s.PendingSteps) == 0
+}
+
+// RefreshSelection supports older states that persisted the original analysis.
+// An absent anchor is never expanded to all current stacks.
+func (s *SyncState) RefreshSelection() ([]string, error) {
+	if s.Plan == nil {
+		return nil, fmt.Errorf("saved sync state has no plan; run sync --abort and start again")
+	}
+	if s.Plan.RefreshBookmarks != nil {
+		return s.Plan.RefreshBookmarks, nil
+	}
+	if s.Plan.Analysis != nil {
+		return s.Plan.Analysis.RemainingBookmarks, nil
+	}
+	if s.Plan.ToRebase != nil {
+		return s.Plan.ToRebase, nil
+	}
+	return nil, fmt.Errorf("saved sync state lacks surviving PR refresh targets; run sync --abort and start again")
 }

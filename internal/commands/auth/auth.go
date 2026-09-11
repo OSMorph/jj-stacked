@@ -76,7 +76,7 @@ func runAuthTest(ctx context.Context, host string) error {
 	// If no host specified, try to detect from repo
 	if host == "" {
 		// Try to detect from repository
-		repoCtx, err := repo.NewRepoContext(ctx, repo.RepoContextOptions{
+		repoCtx, err := repo.Discover(ctx, repo.RepoContextOptions{
 			Exec: exec,
 		})
 		if err == nil {
@@ -138,7 +138,7 @@ func runAuthTest(ctx context.Context, host string) error {
 	}
 
 	fmt.Printf("\n  Token Scopes:\n")
-	fmt.Printf("    ✓ repo (access verified)\n")
+	fmt.Printf("    User identity verified; repository permissions depend on the token.\n")
 
 	return nil
 }
@@ -203,7 +203,7 @@ Troubleshooting
 // DetectHost attempts to detect the GitHub host from the current repository.
 // Returns "github.com" if detection fails.
 func DetectHost(ctx context.Context, exec cmdexec.CommandExecutor) string {
-	repoCtx, err := repo.NewRepoContext(ctx, repo.RepoContextOptions{
+	repoCtx, err := repo.Discover(ctx, repo.RepoContextOptions{
 		Exec: exec,
 	})
 	if err != nil {

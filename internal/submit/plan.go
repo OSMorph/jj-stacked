@@ -3,6 +3,7 @@ package submit
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/OSMorph/jj-stacked/internal/github"
 	"github.com/OSMorph/jj-stacked/internal/logger"
@@ -27,19 +28,10 @@ func CreateSubmissionPlan(
 		Actions: make([]SubmissionAction, 0),
 	}
 
-	// Track PR info as we discover it
-	prInfo := make(map[string]*github.PullRequest) // bookmark -> PR
-
 	// Helper to emit progress
 	progress := func(msg string) {
 		if callbacks != nil && callbacks.OnProgress != nil {
 			callbacks.OnProgress(msg)
-		}
-	}
-
-	bookmarkChecked := func(bookmark string, hasPR bool) {
-		if callbacks != nil && callbacks.OnBookmarkChecked != nil {
-			callbacks.OnBookmarkChecked(bookmark, hasPR)
 		}
 	}
 
@@ -57,24 +49,9 @@ func CreateSubmissionPlan(
 
 	// Phase 2: Query GitHub for existing PRs on each bookmark
 	progress("Checking GitHub for existing PRs...")
-	for _, sb := range analysis.Stack {
-		pr, err := deps.GitHub.FindPRByHead(ctx, deps.Owner, deps.Repo, sb.Bookmark.Name)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check PR for '%s': %w", sb.Bookmark.Name, err)
-		}
-
-		if pr != nil {
-			prInfo[sb.Bookmark.Name] = pr
-			// Track existing PR for display
-			plan.ExistingPRs = append(plan.ExistingPRs, ExistingPR{
-				Bookmark: sb.Bookmark.Name,
-				Number:   pr.Number,
-				URL:      pr.URL,
-			})
-			bookmarkChecked(sb.Bookmark.Name, true)
-		} else {
-			bookmarkChecked(sb.Bookmark.Name, false)
-		}
+	prInfo, err := discoverPRs(ctx, analysis, deps, plan, callbacks)
+	if err != nil {
+		return nil, err
 	}
 
 	// Phase 3: Create PR create/update actions
@@ -112,19 +89,6 @@ func CreateSubmissionPlan(
 			})
 			plan.Summary.PRsToUpdate++
 		}
-	}
-
-	// Phase 4: Detect orphaned PRs (PRs whose branch no longer exists locally)
-	// This handles the case where a bookmark was renamed - the old PR should be closed
-	progress("Checking for orphaned PRs...")
-	orphanedPRs := findOrphanedPRs(ctx, deps, analysis, prInfo)
-	for _, orphan := range orphanedPRs {
-		plan.Actions = append(plan.Actions, &ClosePRAction{
-			PRNumber: orphan.Number,
-			Branch:   orphan.Head,
-			Reason:   "Head branch no longer exists on remote (bookmark may have been renamed)",
-		})
-		plan.Summary.PRsToClose++
 	}
 
 	// Phase 5: Create sync comment actions for all PRs
@@ -172,24 +136,60 @@ func CreatePRRefreshPlan(
 	deps *PlanningDeps,
 	callbacks *PlanningCallbacks,
 ) (*SubmissionPlan, error) {
-	full, err := CreateSubmissionPlan(ctx, analysis, deps, callbacks)
+	if analysis.HasErrors() {
+		return nil, fmt.Errorf("cannot create plan: analysis has errors")
+	}
+	plan := &SubmissionPlan{}
+	prInfo, err := discoverPRs(ctx, analysis, deps, plan, callbacks)
 	if err != nil {
 		return nil, err
 	}
-	refresh := &SubmissionPlan{ExistingPRs: full.ExistingPRs}
-	for _, action := range full.Actions {
-		switch typed := action.(type) {
-		case *UpdateBaseAction:
-			refresh.Actions = append(refresh.Actions, typed)
-			refresh.Summary.PRsToUpdate++
-		case *SyncCommentAction:
-			if typed.PRNumber > 0 {
-				refresh.Actions = append(refresh.Actions, typed)
-				refresh.Summary.CommentsToSync++
-			}
+	for i, sb := range analysis.Stack {
+		pr := prInfo[sb.Bookmark.Name]
+		if pr == nil {
+			continue
+		}
+		base := deps.DefaultBranch
+		if i > 0 {
+			base = analysis.Stack[i-1].Bookmark.Name
+		}
+		if pr.Base != base {
+			plan.Actions = append(plan.Actions, &UpdateBaseAction{
+				Bookmark: sb.Bookmark.Name, PRNumber: pr.Number, OldBase: pr.Base, NewBase: base,
+			})
+			plan.Summary.PRsToUpdate++
 		}
 	}
-	return refresh, nil
+	entries := buildStackEntries(analysis, prInfo)
+	history := computeMergedHistory(ctx, deps, analysis, prInfo)
+	for _, sb := range analysis.Stack {
+		if pr := prInfo[sb.Bookmark.Name]; pr != nil {
+			plan.Actions = append(plan.Actions, &SyncCommentAction{
+				Bookmark: sb.Bookmark.Name, PRNumber: pr.Number,
+				StackEntries: entries, BaseBranch: deps.DefaultBranch, MergedHistory: history,
+			})
+			plan.Summary.CommentsToSync++
+		}
+	}
+	return plan, nil
+}
+
+func discoverPRs(ctx context.Context, analysis *AnalysisResult, deps *PlanningDeps, plan *SubmissionPlan, callbacks *PlanningCallbacks) (map[string]*github.PullRequest, error) {
+	prs := make(map[string]*github.PullRequest)
+	for _, sb := range analysis.Stack {
+		pr, err := deps.GitHub.FindPRByHead(ctx, deps.Owner, deps.Repo, sb.Bookmark.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check PR for %q: %w", sb.Bookmark.Name, err)
+		}
+		if pr != nil {
+			prs[sb.Bookmark.Name] = pr
+			plan.ExistingPRs = append(plan.ExistingPRs, ExistingPR{Bookmark: sb.Bookmark.Name, Number: pr.Number, URL: pr.URL})
+		}
+		if callbacks != nil && callbacks.OnBookmarkChecked != nil {
+			callbacks.OnBookmarkChecked(sb.Bookmark.Name, pr != nil)
+		}
+	}
+	return prs, nil
 }
 
 // buildStackEntries creates github.StackEntry slice from analysis and PR info.
@@ -233,89 +233,6 @@ func GetActionsOfType(plan *SubmissionPlan, actionType ActionType) []SubmissionA
 	return result
 }
 
-// findOrphanedPRs finds open PRs that are likely orphaned because their head branch
-// no longer exists on the remote. This typically happens when a bookmark is renamed
-// (and the old remote branch was deleted).
-func findOrphanedPRs(
-	ctx context.Context,
-	deps *PlanningDeps,
-	analysis *AnalysisResult,
-	existingPRs map[string]*github.PullRequest,
-) []*github.PullRequest {
-	var orphaned []*github.PullRequest
-
-	// Build a set of local bookmark names in this stack
-	localBookmarks := make(map[string]bool)
-	for _, sb := range analysis.Stack {
-		localBookmarks[sb.Bookmark.Name] = true
-	}
-
-	// Build a set of base branches used in this stack
-	baseBranches := make(map[string]bool)
-	baseBranches[deps.DefaultBranch] = true
-	for _, sb := range analysis.Stack {
-		baseBranches[sb.Bookmark.Name] = true
-	}
-
-	// Get all open PRs
-	allOpenPRs, err := deps.GitHub.ListOpenPullRequests(ctx, deps.Owner, deps.Repo)
-	if err != nil {
-		// On error, just skip orphan detection
-		return nil
-	}
-
-	// Find PRs that:
-	// 1. Were created by the current user (to avoid closing teammates' PRs)
-	// 2. Have a head branch that doesn't exist in our local bookmarks
-	// 3. Have a base branch that IS one of our bookmarks (suggesting it was part of this stack)
-	// 4. Have a jj-stacked stack comment
-	for _, pr := range allOpenPRs {
-		// Skip if the PR wasn't created by the current user
-		// This prevents accidentally closing PRs from teammates
-		if deps.CurrentUser != "" && pr.Author != deps.CurrentUser {
-			continue
-		}
-
-		// Skip if the PR's branch exists locally
-		if localBookmarks[pr.Head] {
-			continue
-		}
-
-		// Skip if we already have a PR for this branch (it's not orphaned)
-		if _, exists := existingPRs[pr.Head]; exists {
-			continue
-		}
-
-		// Check if the PR's base is one of our bookmarks (suggesting it was part of this stack)
-		if baseBranches[pr.Base] {
-			// This PR has a base that's in our stack but its head branch doesn't exist
-			// Check if it has a jj-stacked stack comment to confirm it was managed by us
-			comments, err := deps.GitHub.ListComments(ctx, deps.Owner, deps.Repo, pr.Number)
-			if err != nil {
-				continue
-			}
-
-			for _, comment := range comments {
-				if github.IsStackComment(comment.Body) {
-					// This PR looks like it was managed by jj-stacked, but we should only
-					// auto-close it if we can confirm its head branch is actually gone on
-					// the remote. Being conservative here avoids closing PRs from other
-					// stacks that happen to be stacked on top of this one.
-					exists, err := deps.GitHub.BranchExists(ctx, deps.Owner, deps.Repo, pr.Head)
-					if err != nil || exists {
-						break
-					}
-
-					orphaned = append(orphaned, pr)
-					break
-				}
-			}
-		}
-	}
-
-	return orphaned
-}
-
 // computeMergedHistory extracts merged PR history from existing comments and identifies
 // newly merged PRs that should be added to the history.
 // If parsing an existing comment fails (e.g., due to manual edits), we proceed with
@@ -339,7 +256,8 @@ func computeMergedHistory(
 	mergedByPRNum := make(map[int]github.MergedPRInfo)
 
 	// First, collect existing merged history from any PR that has a stack comment
-	for _, pr := range prInfo {
+	for _, sb := range analysis.Stack {
+		pr := prInfo[sb.Bookmark.Name]
 		if pr == nil || pr.Number == 0 {
 			continue
 		}
@@ -399,7 +317,7 @@ func computeMergedHistory(
 					continue
 				}
 
-				if oldPR.Merged {
+				if oldPR != nil && oldPR.Merged {
 					mergedByPRNum[prNum] = github.MergedPRInfo{
 						Bookmark:   bookmark,
 						PRNumber:   prNum,
@@ -420,5 +338,6 @@ func computeMergedHistory(
 		result = append(result, m)
 	}
 
+	sort.Slice(result, func(i, j int) bool { return result[i].PRNumber < result[j].PRNumber })
 	return result
 }

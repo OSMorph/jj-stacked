@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/OSMorph/jj-stacked/internal/cmdexec"
+	"github.com/OSMorph/jj-stacked/internal/commands/common"
 	apperrors "github.com/OSMorph/jj-stacked/internal/errors"
 	"github.com/OSMorph/jj-stacked/internal/jjutils"
 	"github.com/OSMorph/jj-stacked/internal/ui"
@@ -57,13 +58,13 @@ JSON OUTPUT:
   • excluded_count: Number of bookmarks excluded due to merges
   • warnings: Any issues detected`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.Debug = common.Debug(cmd)
 			return runAnalyze(cmd.Context(), opts)
 		},
 	}
 
 	cmd.Flags().BoolVar(&opts.JSON, "json", false, "Output as JSON instead of interactive UI")
 	cmd.Flags().BoolVar(&opts.NoFetch, "no-fetch", false, "Skip fetching from remotes (faster but may be outdated)")
-	cmd.Flags().BoolVar(&opts.Debug, "debug", false, "Enable debug output for troubleshooting")
 
 	return cmd
 }
@@ -184,8 +185,12 @@ func launchUI(ctx context.Context, graph *jjutils.ChangeGraph, jj jjutils.JJFunc
 
 // RunDefault is called when jj-stacked is run without a subcommand.
 // It launches the interactive graph view.
-func RunDefault(ctx context.Context) error {
+func RunDefault(ctx context.Context) error { return RunDefaultWithDebug(ctx, false) }
+
+// RunDefaultWithDebug launches the graph with the effective shared debug option.
+func RunDefaultWithDebug(ctx context.Context, debug bool) error {
 	return runAnalyze(ctx, &Options{
+		Debug:   debug,
 		JSON:    false,
 		NoFetch: false,
 	})

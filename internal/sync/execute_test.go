@@ -19,6 +19,9 @@ type fakeJJ struct {
 	}
 	pushCalls        []struct{ remote, bookmark string }
 	abandonCalls     []string
+	forgetCalls      []string
+	forgetError      error
+	getLog           func(context.Context, string, int) ([]jjutils.LogEntry, error)
 	pushErrors       map[string]error
 	listBookmarksErr error
 	conflictOn       int
@@ -83,8 +86,18 @@ func (f *fakeJJ) DeleteBookmark(_ context.Context, name string) error {
 	return nil
 }
 
-func (f *fakeJJ) GetLog(context.Context, string, int) ([]jjutils.LogEntry, error) {
-	panic("unexpected call")
+func (f *fakeJJ) GetLog(ctx context.Context, revset string, limit int) ([]jjutils.LogEntry, error) {
+	if f.getLog != nil {
+		return f.getLog(ctx, revset, limit)
+	}
+	panic("unexpected log call: " + revset)
+}
+func (f *fakeJJ) ForgetBookmark(ctx context.Context, name string) error {
+	f.forgetCalls = append(f.forgetCalls, name)
+	if f.forgetError != nil {
+		return f.forgetError
+	}
+	return f.DeleteBookmark(ctx, name)
 }
 func (f *fakeJJ) GetChange(context.Context, string) (*jjutils.LogEntry, error) {
 	panic("unexpected call")
@@ -105,6 +118,13 @@ func (f *fakeJJ) BuildChangeGraphForBookmark(context.Context, string, string) (*
 
 func (f *fakeJJ) Abandon(_ context.Context, revset string) error {
 	f.abandonCalls = append(f.abandonCalls, revset)
+	remaining := f.bookmarks[:0]
+	for _, bookmark := range f.bookmarks {
+		if bookmark.CommitID == "" || !strings.Contains(revset, bookmark.CommitID) {
+			remaining = append(remaining, bookmark)
+		}
+	}
+	f.bookmarks = remaining
 	return nil
 }
 func (f *fakeJJ) Rebase(_ context.Context, source, destination string) error {
@@ -121,9 +141,11 @@ func (f *fakeJJ) HasConflicts(context.Context) (bool, error) {
 func (f *fakeJJ) GetConflictFiles(context.Context) ([]string, error) {
 	return []string{"conflicted.txt"}, nil
 }
-func (f *fakeJJ) IsAncestor(context.Context, string, string) (bool, error) { return false, nil }
-func (f *fakeJJ) GetOperationID(context.Context) (string, error)           { return "op", nil }
-func (f *fakeJJ) RestoreOperation(context.Context, string) error           { return nil }
+func (f *fakeJJ) IsAncestor(_ context.Context, ancestor, _ string) (bool, error) {
+	return ancestor == strings.Repeat("f", 40), nil
+}
+func (f *fakeJJ) GetOperationID(context.Context) (string, error) { return "op", nil }
+func (f *fakeJJ) RestoreOperation(context.Context, string) error { return nil }
 
 func TestExecuteSync_SkipsPushForDeletedBookmark(t *testing.T) {
 	ctx := context.Background()
@@ -245,8 +267,8 @@ func TestExecuteSyncWithState_CheckpointsPartialPushes(t *testing.T) {
 }
 
 func TestExecuteSyncWithState_DeletesMergedBookmarkAlreadyInTrunk(t *testing.T) {
-	jj := &fakeJJ{bookmarks: []jjutils.Bookmark{{Name: "merged"}, {Name: "remaining"}}}
-	plan := &SyncPlan{Remote: "origin", ToDelete: []string{"merged"}}
+	jj := &fakeJJ{bookmarks: []jjutils.Bookmark{{Name: "merged", CommitID: strings.Repeat("a", 40)}, {Name: "remaining"}}}
+	plan := &SyncPlan{Remote: "origin", ToDelete: []string{"merged"}, CleanupHeads: map[string]string{"merged": strings.Repeat("a", 40)}}
 	state := CreateInitialState(plan, "op", "remaining", true)
 	result := ExecuteSyncWithState(context.Background(), plan, state, jj, nil)
 	if !result.Success || len(result.Deleted) != 1 || result.Deleted[0] != "merged" {
@@ -254,5 +276,100 @@ func TestExecuteSyncWithState_DeletesMergedBookmarkAlreadyInTrunk(t *testing.T) 
 	}
 	if !state.StepComplete("delete:merged") {
 		t.Fatal("delete step was not checkpointed")
+	}
+}
+
+func TestExecuteSyncRefusesMovedMergedHeadBeforeAnyMutation(t *testing.T) {
+	old, moved := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	for _, mode := range []string{"forget", "abandon"} {
+		t.Run(mode, func(t *testing.T) {
+			jj := &fakeJJ{bookmarks: []jjutils.Bookmark{{Name: "merged", CommitID: moved}}}
+			plan := &SyncPlan{CleanupHeads: map[string]string{"merged": old}, ToPush: []string{"merged"}}
+			if mode == "forget" {
+				plan.ToDelete = []string{"merged"}
+			} else {
+				plan.ToAbandon = []string{"merged"}
+				plan.AbandonCommits = []string{old}
+			}
+			result := ExecuteSync(context.Background(), plan, jj, nil)
+			if result.Success || len(jj.abandonCalls)+len(jj.forgetCalls)+len(jj.pushCalls) != 0 {
+				t.Fatalf("unsafe result: %+v", result)
+			}
+			if len(result.Errors) != 1 || !strings.Contains(result.Errors[0].Error(), "moved") {
+				t.Fatalf("errors = %v", result.Errors)
+			}
+		})
+	}
+}
+
+func TestExecuteSyncAbandonsMergedSegmentsAtomicallyByExactID(t *testing.T) {
+	a1, a2, b1 := strings.Repeat("a", 40), strings.Repeat("b", 40), strings.Repeat("c", 40)
+	jj := &fakeJJ{bookmarks: []jjutils.Bookmark{{Name: "a", CommitID: a2}, {Name: "b", CommitID: b1}, {Name: "active", CommitID: strings.Repeat("d", 40)}}, getLog: func(context.Context, string, int) ([]jjutils.LogEntry, error) { return nil, nil }}
+	plan := &SyncPlan{ToAbandon: []string{"a", "b"}, CleanupHeads: map[string]string{"a": a2, "b": b1}, CleanupProofs: map[string]string{"a": strings.Repeat("f", 40), "b": strings.Repeat("f", 40)}, AbandonCommits: []string{a1, a2, b1}}
+	state := CreateInitialState(plan, "op", "a", true)
+	result := ExecuteSyncWithState(context.Background(), plan, state, jj, nil)
+	if !result.Success {
+		t.Fatalf("errors: %v", result.Errors)
+	}
+	if len(jj.abandonCalls) != 1 || jj.abandonCalls[0] != strings.Join(plan.AbandonCommits, " | ") {
+		t.Fatalf("abandon calls: %v", jj.abandonCalls)
+	}
+	if !state.StepComplete("abandon:a") || !state.StepComplete("abandon:b") {
+		t.Fatalf("incomplete state: %+v", state)
+	}
+}
+
+func TestExecuteSyncProtectsSharedAndWorkspaceTargets(t *testing.T) {
+	id := strings.Repeat("a", 40)
+	for _, tc := range []struct {
+		name          string
+		extraBookmark bool
+		protected     bool
+	}{{"shared bookmark", true, false}, {"workspace or immutable", false, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			jj := &fakeJJ{bookmarks: []jjutils.Bookmark{{Name: "merged", CommitID: id}}, getLog: func(context.Context, string, int) ([]jjutils.LogEntry, error) {
+				if tc.protected {
+					return []jjutils.LogEntry{{CommitID: id}}, nil
+				}
+				return nil, nil
+			}}
+			if tc.extraBookmark {
+				jj.bookmarks = append(jj.bookmarks, jjutils.Bookmark{Name: "keep", CommitID: id})
+			}
+			plan := &SyncPlan{ToAbandon: []string{"merged"}, CleanupHeads: map[string]string{"merged": id}, CleanupProofs: map[string]string{"merged": strings.Repeat("f", 40)}, AbandonCommits: []string{id}}
+			result := ExecuteSync(context.Background(), plan, jj, nil)
+			if result.Success || len(jj.abandonCalls) > 0 {
+				t.Fatalf("unprotected cleanup: %+v", result)
+			}
+		})
+	}
+}
+
+func TestExecuteSyncRejectsLegacyPendingCleanup(t *testing.T) {
+	jj := &fakeJJ{bookmarks: []jjutils.Bookmark{{Name: "merged", CommitID: strings.Repeat("a", 40)}}}
+	plan := &SyncPlan{ToAbandon: []string{"merged"}}
+	result := ExecuteSync(context.Background(), plan, jj, nil)
+	if result.Success || len(jj.abandonCalls) > 0 || !strings.Contains(result.Errors[0].Error(), "sync --abort") {
+		t.Fatalf("legacy result: %+v", result)
+	}
+}
+
+func (f *fakeJJ) ListDivergentChanges(context.Context) ([]jjutils.LogEntry, error) {
+	panic("unexpected call")
+}
+
+func TestSyncResumesLocalForgetBeforeAnyPush(t *testing.T) {
+	id := strings.Repeat("a", 40)
+	jj := &fakeJJ{bookmarks: []jjutils.Bookmark{{Name: "merged", CommitID: id}, {Name: "active", CommitID: strings.Repeat("b", 40)}}, getLog: func(context.Context, string, int) ([]jjutils.LogEntry, error) { return nil, nil }, forgetError: errors.New("fixture failure")}
+	plan := &SyncPlan{ToAbandon: []string{"merged"}, CleanupHeads: map[string]string{"merged": id}, CleanupProofs: map[string]string{"merged": strings.Repeat("f", 40)}, AbandonCommits: []string{id}, ToPush: []string{"active"}}
+	state := CreateInitialState(plan, "op", "merged", true)
+	first := ExecuteSyncWithState(context.Background(), plan, state, jj, nil)
+	if first.Success || len(jj.pushCalls) > 0 || !state.StepComplete("abandon:merged") || state.StepComplete("forget:merged") {
+		t.Fatalf("push occurred before forget checkpoint: %+v %+v", first, state)
+	}
+	jj.forgetError = nil
+	second := ExecuteSyncWithState(context.Background(), plan, state, jj, nil)
+	if !second.Success || len(jj.abandonCalls) != 1 || len(jj.pushCalls) != 1 || !state.StepComplete("forget:merged") {
+		t.Fatalf("incorrect recovery: %+v %+v", second, state)
 	}
 }

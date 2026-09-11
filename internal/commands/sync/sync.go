@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/OSMorph/jj-stacked/internal/cmdexec"
+	"github.com/OSMorph/jj-stacked/internal/commands/common"
 	completioncmd "github.com/OSMorph/jj-stacked/internal/commands/completion"
 	apperrors "github.com/OSMorph/jj-stacked/internal/errors"
 	"github.com/OSMorph/jj-stacked/internal/jjutils"
@@ -41,7 +42,7 @@ func NewCommand() *cobra.Command {
 
 This command performs the following steps:
 1. Fetches the latest changes from the selected remote
-2. Abandons any bookmarks whose PRs have been merged (if detected)
+2. Cleans up verified merged segments, preserving active descendants
 3. Rebases the stack onto the updated trunk (e.g., main@origin)
 4. Pushes bookmarks that are ahead of the selected remote
 
@@ -77,6 +78,7 @@ WORKFLOW:
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: completioncmd.BookmarkValidArgsFunction,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.Debug = common.Debug(cmd)
 			if len(args) > 0 && (opts.Continue || opts.Abort) {
 				return fmt.Errorf("bookmark cannot be used with --continue or --abort")
 			}
@@ -92,7 +94,6 @@ WORKFLOW:
 	cmd.Flags().BoolVar(&opts.Abort, "abort", false, "Abort sync in progress")
 	cmd.Flags().BoolVar(&opts.NoResubmit, "no-resubmit", false, "Skip refreshing existing PR bases and stack comments")
 	cmd.Flags().BoolVarP(&opts.Yes, "yes", "y", false, "Skip confirmation prompt")
-	cmd.Flags().BoolVar(&opts.Debug, "debug", false, "Enable debug output for troubleshooting")
 	cmd.Flags().StringVar(&opts.Remote, "remote", "", "Remote to fetch from and push to (default: origin)")
 	cmd.MarkFlagsMutuallyExclusive("continue", "abort", "dry-run")
 
@@ -101,10 +102,7 @@ WORKFLOW:
 
 func runSync(ctx context.Context, opts *Options) error {
 	// Set up logger
-	log := logger.New(logger.Options{
-		Debug:  opts.Debug,
-		Output: os.Stderr,
-	})
+	log := common.NewLogger(opts.Debug)
 
 	// Create JJ functions
 	jj := jjutils.NewJJFunctions(cmdexec.NewRealExecutor(), "")
@@ -242,7 +240,7 @@ func runSync(ctx context.Context, opts *Options) error {
 			}
 		},
 		OnDelete: func(bookmark string) {
-			fmt.Printf("  Deleting merged bookmark %s (change already in trunk)...\n", bookmark)
+			fmt.Printf("  Forgetting local merged bookmark %s (change already in trunk)...\n", bookmark)
 		},
 		OnDeleteComplete: func(bookmark string, err error) {
 			if err != nil {
@@ -280,7 +278,7 @@ func runSync(ctx context.Context, opts *Options) error {
 	}
 
 	if result.Success && !opts.NoResubmit {
-		if err := refreshExistingPRs(ctx, jj, repoCtx, opts.Bookmark, log); err != nil {
+		if err := refreshExistingPRs(ctx, jj, repoCtx, plan.RefreshBookmarks, log); err != nil {
 			state.SetPhase("refresh-failed")
 			_ = sync.SaveSyncState(ctx, jj, state)
 			return fmt.Errorf("refresh existing pull requests: %w", err)
@@ -363,7 +361,7 @@ func handleContinue(ctx context.Context, jj jjutils.JJFunctions, log *logger.Log
 			}
 		},
 		OnDelete: func(bookmark string) {
-			fmt.Printf("  Deleting merged bookmark %s (change already in trunk)...\n", bookmark)
+			fmt.Printf("  Forgetting local merged bookmark %s (change already in trunk)...\n", bookmark)
 		},
 		OnDeleteComplete: func(bookmark string, err error) {
 			if err != nil {
@@ -396,7 +394,11 @@ func handleContinue(ctx context.Context, jj jjutils.JJFunctions, log *logger.Log
 		if err != nil {
 			return fmt.Errorf("initialize repository context: %w", err)
 		}
-		if err := refreshExistingPRs(ctx, jj, repoCtx, state.Bookmark, log); err != nil {
+		selection, err := state.RefreshSelection()
+		if err != nil {
+			return err
+		}
+		if err := refreshExistingPRs(ctx, jj, repoCtx, selection, log); err != nil {
 			state.SetPhase("refresh-failed")
 			_ = sync.SaveSyncState(ctx, jj, state)
 			return fmt.Errorf("refresh existing pull requests: %w", err)
@@ -422,35 +424,34 @@ func handleContinue(ctx context.Context, jj jjutils.JJFunctions, log *logger.Log
 	return nil
 }
 
-func refreshExistingPRs(ctx context.Context, jj jjutils.JJFunctions, repoCtx *repo.RepoContext, bookmark string, log *logger.Logger) error {
+func refreshExistingPRs(ctx context.Context, jj jjutils.JJFunctions, repoCtx *repo.RepoContext, bookmarks []string, log *logger.Logger) error {
 	graph, err := jj.BuildChangeGraphForBase(ctx, fmt.Sprintf("%s@%s", repoCtx.DefaultBranch, repoCtx.Remote))
 	if err != nil {
 		return err
 	}
-	var targets []string
-	if bookmark != "" {
-		component := graph.GetConnectedBookmarks(bookmark)
-		selected := make(map[string]bool, len(component))
-		for _, name := range component {
+	selected := make(map[string]bool, len(bookmarks))
+	for _, name := range bookmarks {
+		if _, exists := graph.Bookmarks[name]; exists {
 			selected[name] = true
 		}
-		for _, name := range component {
-			leaf := true
-			for _, child := range graph.ParentToChildren[name] {
-				if selected[child] {
-					leaf = false
-					break
-				}
-			}
-			if leaf {
-				targets = append(targets, name)
+	}
+	var targets []string
+	for _, name := range bookmarks {
+		if !selected[name] {
+			continue
+		}
+		leaf := true
+		for _, child := range graph.ParentToChildren[name] {
+			if selected[child] {
+				leaf = false
+				break
 			}
 		}
-	} else {
-		targets = append(targets, graph.Leaves...)
+		if leaf {
+			targets = append(targets, name)
+		}
 	}
 
-	currentUser, _ := repoCtx.GitHub.GetAuthenticatedUser(ctx)
 	for _, target := range targets {
 		analysis, err := submitpkg.AnalyzeSubmission(ctx, graph, target)
 		if err != nil || analysis.HasErrors() {
@@ -461,12 +462,27 @@ func refreshExistingPRs(ctx context.Context, jj jjutils.JJFunctions, repoCtx *re
 		}
 		deps := &submitpkg.PlanningDeps{
 			GitHub: repoCtx.GitHub, Owner: repoCtx.Owner, Repo: repoCtx.Repo,
-			Remote: repoCtx.Remote, DefaultBranch: repoCtx.DefaultBranch, CurrentUser: currentUser,
+			Remote: repoCtx.Remote, DefaultBranch: repoCtx.DefaultBranch,
 		}
 		plan, err := submitpkg.CreatePRRefreshPlan(ctx, analysis, deps, nil)
 		if err != nil {
 			return err
 		}
+		// A changed graph may introduce new relatives; refresh only the saved scope.
+		actions := plan.Actions[:0]
+		for _, action := range plan.Actions {
+			switch action := action.(type) {
+			case *submitpkg.UpdateBaseAction:
+				if selected[action.Bookmark] {
+					actions = append(actions, action)
+				}
+			case *submitpkg.SyncCommentAction:
+				if selected[action.Bookmark] {
+					actions = append(actions, action)
+				}
+			}
+		}
+		plan.Actions = actions
 		if len(plan.Actions) == 0 {
 			continue
 		}

@@ -9,7 +9,12 @@ import (
 
 	analyzecmd "github.com/OSMorph/jj-stacked/internal/commands/analyze"
 	authcmd "github.com/OSMorph/jj-stacked/internal/commands/auth"
+	cleanupcmd "github.com/OSMorph/jj-stacked/internal/commands/cleanup"
+	"github.com/OSMorph/jj-stacked/internal/commands/common"
 	completioncmd "github.com/OSMorph/jj-stacked/internal/commands/completion"
+	doctorcmd "github.com/OSMorph/jj-stacked/internal/commands/doctor"
+	opencmd "github.com/OSMorph/jj-stacked/internal/commands/open"
+	statuscmd "github.com/OSMorph/jj-stacked/internal/commands/status"
 	submitcmd "github.com/OSMorph/jj-stacked/internal/commands/submit"
 	synccmd "github.com/OSMorph/jj-stacked/internal/commands/sync"
 	updatecmd "github.com/OSMorph/jj-stacked/internal/commands/update"
@@ -76,13 +81,15 @@ EXAMPLES:
   jj-stacked auth test`,
 	Version:           version,
 	DisableAutoGenTag: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// When run without subcommands, launch the interactive graph UI
-		// Handle --no-color flag
+	SilenceUsage:      true,
+	Args:              cobra.NoArgs,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		if noColor {
 			ui.DisableColors()
 		}
-		return analyzecmd.RunDefault(cmd.Context())
+	},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return analyzecmd.RunDefaultWithDebug(cmd.Context(), common.Debug(cmd))
 	},
 }
 
@@ -98,6 +105,11 @@ func init() {
 	rootCmd.AddCommand(submitcmd.NewCommand())
 	rootCmd.AddCommand(authcmd.NewCommand())
 	rootCmd.AddCommand(synccmd.NewCommand())
+	rootCmd.AddCommand(cleanupcmd.NewPruneCommand())
+	rootCmd.AddCommand(cleanupcmd.NewAbandonCommand())
+	rootCmd.AddCommand(statuscmd.NewCommand())
+	rootCmd.AddCommand(doctorcmd.NewCommand())
+	rootCmd.AddCommand(opencmd.NewCommand())
 	rootCmd.AddCommand(updatecmd.NewCommand(updatecmd.Options{
 		CurrentVersion: resolved,
 		GoInstall:      goInstall,

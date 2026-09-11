@@ -1,21 +1,27 @@
 // Package jjutils provides Jujutsu integration for jj-stacked.
 package jjutils
 
+import "time"
+
 // LogEntry represents a single change/commit in the Jujutsu graph.
 // AIDEV-NOTE: JSON tags match the template output from jj log.
 type LogEntry struct {
-	CommitID             string   `json:"commit_id"`
-	ChangeID             string   `json:"change_id"`
-	AuthorName           string   `json:"author_name"`
-	AuthorEmail          string   `json:"author_email"`
-	DescriptionFirstLine string   `json:"description_first_line"`
-	Description          string   `json:"description"`
-	Parents              []string `json:"parents"`
-	LocalBookmarks       []string `json:"local_bookmarks"`
-	RemoteBookmarks      []string `json:"remote_bookmarks"`
-	IsWorkingCopy        bool     `json:"is_working_copy"`
-	IsEmpty              bool     `json:"is_empty"`
-	Conflict             bool     `json:"conflict"`
+	CommitID             string    `json:"commit_id"`
+	ChangeID             string    `json:"change_id"`
+	AuthorName           string    `json:"author_name"`
+	AuthorEmail          string    `json:"author_email"`
+	DescriptionFirstLine string    `json:"description_first_line"`
+	Description          string    `json:"description"`
+	Parents              []string  `json:"parents"`
+	LocalBookmarks       []string  `json:"local_bookmarks"`
+	RemoteBookmarks      []string  `json:"remote_bookmarks"`
+	IsWorkingCopy        bool      `json:"is_working_copy"`
+	IsEmpty              bool      `json:"is_empty"`
+	Conflict             bool      `json:"conflict"`
+	Divergent            bool      `json:"divergent"`
+	Immutable            bool      `json:"immutable"`
+	HasWorkingCopy       bool      `json:"has_working_copy"`
+	CommittedAt          time.Time `json:"committed_at"`
 }
 
 // IsMergeCommit returns true if this change has multiple parents.

@@ -51,13 +51,9 @@ func FormatDryRunOutput(analysis *AnalysisResult, plan *SubmissionPlan) string {
 	if plan.Summary.CommentsToSync > 0 {
 		sb.WriteString(fmt.Sprintf("  • %d comment(s) to sync\n", plan.Summary.CommentsToSync))
 	}
-	if plan.Summary.PRsToClose > 0 {
-		sb.WriteString(fmt.Sprintf("  • %d orphaned PR(s) to close\n", plan.Summary.PRsToClose))
-	}
 
 	if plan.Summary.BookmarksToPush == 0 && plan.Summary.PRsToCreate == 0 &&
-		plan.Summary.PRsToUpdate == 0 && plan.Summary.CommentsToSync == 0 &&
-		plan.Summary.PRsToClose == 0 {
+		plan.Summary.PRsToUpdate == 0 && plan.Summary.CommentsToSync == 0 {
 		sb.WriteString("  • Nothing to do\n")
 	}
 
@@ -97,10 +93,6 @@ func formatAction(action SubmissionAction) string {
 		return fmt.Sprintf("[SYNC COMMENT] Update stack comment on PR #%d ('%s')",
 			a.PRNumber, a.Bookmark)
 
-	case *ClosePRAction:
-		return fmt.Sprintf("[CLOSE PR] Close orphaned PR #%d (branch '%s' no longer exists on remote)",
-			a.PRNumber, a.Branch)
-
 	default:
 		return action.Description()
 	}
@@ -127,20 +119,20 @@ func FormatExecutionResult(result *ExecutionResult, plan *SubmissionPlan) string
 		sb.WriteString("Results:\n")
 		for i, ar := range result.Executed {
 			status := "✓"
-			if !ar.Success {
+			if ar.Error != nil {
 				status = "✗"
 			}
 			sb.WriteString(fmt.Sprintf("  %d. %s %s\n", i+1, status, ar.Action.Description()))
 
 			// Show details for successful PR creations
-			if ar.Success && ar.Action.Type() == ActionCreatePR {
-				if url, ok := ar.Details["pr_url"].(string); ok {
-					sb.WriteString(fmt.Sprintf("     → %s\n", url))
+			if ar.Error == nil && ar.Action.Type() == ActionCreatePR {
+				if ar.CreatedPR != nil {
+					sb.WriteString(fmt.Sprintf("     → %s\n", ar.CreatedPR.URL))
 				}
 			}
 
 			// Show error for failures
-			if !ar.Success && ar.Error != nil {
+			if ar.Error != nil {
 				sb.WriteString(fmt.Sprintf("     Error: %s\n", ar.Error.Error()))
 			}
 		}
@@ -188,10 +180,10 @@ func GetAllPRURLs(result *ExecutionResult, plan *SubmissionPlan) []string {
 	// Add newly created PRs from execution
 	if result != nil {
 		for _, ar := range result.Executed {
-			if ar.Action.Type() == ActionCreatePR && ar.Success {
-				if url, ok := ar.Details["pr_url"].(string); ok && !urlSet[url] {
-					urlSet[url] = true
-					urls = append(urls, url)
+			if ar.Action.Type() == ActionCreatePR && ar.Error == nil {
+				if ar.CreatedPR != nil && !urlSet[ar.CreatedPR.URL] {
+					urlSet[ar.CreatedPR.URL] = true
+					urls = append(urls, ar.CreatedPR.URL)
 				}
 			}
 		}

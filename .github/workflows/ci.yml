@@ -12,6 +12,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         go-version: ["1.26.6"]
+        jj-version: ["0.27.0", "0.44.0"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -23,12 +24,24 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Install pinned jj in the job directory
+        run: |
+          python3 .github/scripts/install-jj.py '${{ matrix.jj-version }}' "$RUNNER_TEMP/jj-bin"
+          echo "$RUNNER_TEMP/jj-bin" >> "$GITHUB_PATH"
+
+      - name: Verify integration prerequisites
+        run: |
+          jj --version
+          git --version
+
       - name: Verify go.mod is tidy
         run: |
           go mod tidy
           git diff --exit-code go.mod go.sum
 
       - name: Run tests
+        env:
+          JJ_CONFIG: /dev/null
         run: go test -race -coverprofile=coverage.out ./...
 
       - name: Build

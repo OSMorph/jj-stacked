@@ -2,6 +2,7 @@ package jjutils
 
 import (
 	"context"
+	"os"
 
 	"github.com/OSMorph/jj-stacked/internal/cmdexec"
 )
@@ -28,9 +29,11 @@ type JJFunctions interface {
 	ListUserBookmarksForBase(ctx context.Context, base string) ([]Bookmark, error)
 	GetBookmarksForChange(ctx context.Context, changeID string) ([]Bookmark, error)
 	DeleteBookmark(ctx context.Context, name string) error
+	ForgetBookmark(ctx context.Context, name string) error
 
 	// Log/History operations
 	GetLog(ctx context.Context, revset string, limit int) ([]LogEntry, error)
+	ListDivergentChanges(ctx context.Context) ([]LogEntry, error)
 	GetChange(ctx context.Context, changeID string) (*LogEntry, error)
 	GetChangesInRange(ctx context.Context, from, to string) ([]LogEntry, error)
 
@@ -59,7 +62,7 @@ type jjFunctions struct {
 // If jjPath is empty, "jj" will be used (found via PATH).
 func NewJJFunctions(exec cmdexec.CommandExecutor, jjPath string) JJFunctions {
 	if jjPath == "" {
-		jjPath = "jj"
+		jjPath = Binary()
 	}
 	return &jjFunctions{
 		exec:   exec,
@@ -70,4 +73,12 @@ func NewJJFunctions(exec cmdexec.CommandExecutor, jjPath string) JJFunctions {
 // jjCmd returns the jj binary path.
 func (j *jjFunctions) jjCmd() string {
 	return j.jjPath
+}
+
+// Binary resolves the configured jj executable.
+func Binary() string {
+	if path := os.Getenv("JJ_PATH"); path != "" {
+		return path
+	}
+	return "jj"
 }
