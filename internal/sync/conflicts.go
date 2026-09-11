@@ -27,7 +27,7 @@ type ConflictInfo struct {
 	CurrentBookmark string
 }
 
-// CheckForConflicts detects if the working copy has conflicts.
+// CheckForConflicts detects conflicted revisions in the repository.
 func CheckForConflicts(ctx context.Context, jj jjutils.JJFunctions) (*ConflictInfo, error) {
 	hasConflicts, err := jj.HasConflicts(ctx)
 	if err != nil {
@@ -43,6 +43,29 @@ func CheckForConflicts(ctx context.Context, jj jjutils.JJFunctions) (*ConflictIn
 	}
 
 	return info, nil
+}
+
+// conflictsError builds a diagnostic error for conflicted revisions. The
+// conflicts() revset spans the whole repository (working copy and any visible
+// descendant, including revisions unrelated to the selected stack), so the
+// message points at the actual conflicted revisions instead of claiming the
+// working copy is conflicted.
+func conflictsError(ctx context.Context, jj jjutils.JJFunctions) error {
+	entries, err := jj.GetLog(ctx, "conflicts()", 0)
+	if err != nil || len(entries) == 0 {
+		return fmt.Errorf(
+			"conflicted revisions found in the repository - resolve them before syncing (inspect with: jj log -r 'conflicts()')")
+	}
+	var sb strings.Builder
+	sb.WriteString("conflicted revisions found in the repository - resolve them before syncing:\n")
+	for i := range entries {
+		entry := &entries[i]
+		sb.WriteString(fmt.Sprintf("  - %s (change %s): %s\n",
+			entry.CommitID, entry.ChangeID, strings.TrimSpace(entry.Description)))
+	}
+	sb.WriteString("Inspect with: jj log -r 'conflicts()'; conflicts left by an earlier interrupted")
+	sb.WriteString(" operation are usually resolved by rebasing the affected stack onto remote trunk")
+	return fmt.Errorf("%s", sb.String())
 }
 
 // FormatConflictInstructions returns user instructions for resolving conflicts.

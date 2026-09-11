@@ -375,7 +375,9 @@ func (j *jjFunctions) Rebase(ctx context.Context, source, destination string) er
 	return nil
 }
 
-// HasConflicts checks if the working copy has conflicts.
+// HasConflicts checks the whole repository for conflicted revisions. The
+// conflicts() revset matches any visible conflicted commit, not only the
+// working copy.
 // Returns true if conflicts are present.
 func (j *jjFunctions) HasConflicts(ctx context.Context) (bool, error) {
 	output, err := j.exec.Run(ctx, j.jjCmd(), "log", "-r", "conflicts()", "--no-graph", "-T", `"true\n"`)

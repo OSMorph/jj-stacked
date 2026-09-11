@@ -173,6 +173,9 @@ func runSync(ctx context.Context, opts *Options) error {
 		for _, e := range analysis.Errors {
 			fmt.Fprintf(os.Stderr, "  - %s\n", e.Error())
 		}
+		if analysis.ConflictDetail != nil {
+			fmt.Fprintf(os.Stderr, "\nHint: %s\n", analysis.ConflictDetail.Error())
+		}
 		return fmt.Errorf("analysis found blocking errors")
 	}
 

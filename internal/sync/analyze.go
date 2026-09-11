@@ -295,8 +295,8 @@ func AnalyzeSyncWithOptions(
 	if err != nil {
 		analysis.Warnings = append(analysis.Warnings, fmt.Sprintf("could not check for conflicts: %v", err))
 	} else if hasConflicts {
-		analysis.Errors = append(analysis.Errors,
-			fmt.Errorf("working copy has conflicts - resolve them before syncing"))
+		analysis.ConflictDetail = conflictsError(ctx, jj)
+		analysis.Errors = append(analysis.Errors, analysis.ConflictDetail)
 	}
 
 	return analysis, nil
