@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.6.0](https://github.com/OSMorph/jj-stacked/compare/v2.5.3...v2.6.0) (2026-09-11)
+
+
+### Features
+
+* add cleanup and repository diagnostics ([5064e37](https://github.com/OSMorph/jj-stacked/commit/5064e373f4df0830b62aa0f79b273a5d1f5f4c7f))
+* add cleanup workflows and repository diagnostics ([621ca91](https://github.com/OSMorph/jj-stacked/commit/621ca91100dbcfe3133c29e2c49cc9721cfa52a2))
+
 ## [2.5.3](https://github.com/OSMorph/jj-stacked/compare/v2.5.2...v2.5.3) (2026-08-26)
 
 
