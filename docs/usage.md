@@ -71,6 +71,8 @@ jj status
 jjk sync --continue
 ```
 
+Sync refuses to start while jj reports conflicted revisions anywhere in the repository (`jj log -r 'conflicts()'`); both the revisions and their descriptions are printed with the refusal. `jj status` only shows working-copy conflicts, so an empty status does not guarantee a clean analysis.
+
 To restore the recorded local state:
 
 ```bash

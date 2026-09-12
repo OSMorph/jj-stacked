@@ -51,6 +51,9 @@ type SyncAnalysis struct {
 
 	// Errors are issues that prevent sync from proceeding
 	Errors []error
+
+	// ConflictDetail carries diagnostics for conflicted revisions, if any.
+	ConflictDetail error
 }
 
 // MergedBookmark represents a bookmark whose PR has been merged.
