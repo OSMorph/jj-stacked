@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.6.1](https://github.com/OSMorph/jj-stacked/compare/v2.6.0...v2.6.1) (2026-09-12)
+
+
+### Bug Fixes
+
+* report repo-wide conflicted revisions with diagnostics in sync analysis ([bbfc2fe](https://github.com/OSMorph/jj-stacked/commit/bbfc2fe87606a4477357d66350d4decef1c2a688))
+* report repo-wide conflicted revisions with diagnostics in sync analysis ([3002cc9](https://github.com/OSMorph/jj-stacked/commit/3002cc97e1bb68e429de547c3d4349d98904263f))
+
 ## [2.6.0](https://github.com/OSMorph/jj-stacked/compare/v2.5.3...v2.6.0) (2026-09-11)
 
 
