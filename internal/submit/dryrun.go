@@ -45,14 +45,17 @@ func FormatDryRunOutput(analysis *AnalysisResult, plan *SubmissionPlan) string {
 	if plan.Summary.PRsToCreate > 0 {
 		sb.WriteString(fmt.Sprintf("  • %d PR(s) to create\n", plan.Summary.PRsToCreate))
 	}
+	if plan.Summary.PRsToProtect > 0 {
+		sb.WriteString(fmt.Sprintf("  • %d PR base(s) to protect before pushing\n", plan.Summary.PRsToProtect))
+	}
 	if plan.Summary.PRsToUpdate > 0 {
-		sb.WriteString(fmt.Sprintf("  • %d PR(s) to update\n", plan.Summary.PRsToUpdate))
+		sb.WriteString(fmt.Sprintf("  • %d PR base(s) to set after pushing\n", plan.Summary.PRsToUpdate))
 	}
 	if plan.Summary.CommentsToSync > 0 {
 		sb.WriteString(fmt.Sprintf("  • %d comment(s) to sync\n", plan.Summary.CommentsToSync))
 	}
 
-	if plan.Summary.BookmarksToPush == 0 && plan.Summary.PRsToCreate == 0 &&
+	if plan.Summary.BookmarksToPush == 0 && plan.Summary.PRsToCreate == 0 && plan.Summary.PRsToProtect == 0 &&
 		plan.Summary.PRsToUpdate == 0 && plan.Summary.CommentsToSync == 0 {
 		sb.WriteString("  • Nothing to do\n")
 	}
@@ -86,6 +89,10 @@ func formatAction(action SubmissionAction) string {
 		return strings.Join(parts, "\n")
 
 	case *UpdateBaseAction:
+		if a.Protect {
+			return fmt.Sprintf("[PROTECT BASE] Protect PR #%d before pushes: %s → %s",
+				a.PRNumber, a.OldBase, a.NewBase)
+		}
 		return fmt.Sprintf("[UPDATE BASE] Update PR #%d: %s → %s",
 			a.PRNumber, a.OldBase, a.NewBase)
 

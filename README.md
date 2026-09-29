@@ -164,10 +164,11 @@ jj-stacked submit my-feature
 ```
 
 This will:
-1. Push all bookmarks in the stack to GitHub
-2. Create PRs for bookmarks without existing PRs
-3. Update base branches if stack structure changed
-4. Add stack navigation comments to all PRs
+1. Protect existing PRs affected by the new stack order
+2. Push all bookmarks in the stack to GitHub
+3. Create PRs for bookmarks without existing PRs
+4. Apply final base branches
+5. Add stack navigation comments to all PRs
 
 ### Preview Changes (Dry Run)
 
@@ -409,6 +410,16 @@ jj git remote list
 ## Contributing
 
 See the [behavior and architecture contract](REQUIREMENTS.md) and [audit implementation record](docs/quality-audit-plan.md). Run `make check` with jj installed. CI tests pinned jj 0.27.0 and 0.44.0 on Linux and macOS.
+
+On x86_64 Linux with Nix and rootless Podman, use the pinned validation worker for reproducible checks:
+
+```bash
+scripts/run-worker.sh 0.27.0 .artifacts/jj-0.27 -- go test -race ./...
+scripts/run-worker.sh 0.44.0 .artifacts/jj-0.44 -- go test -race ./...
+scripts/run-worker.sh 0.44.0 .artifacts/build -- go build -o /artifacts/jj-stacked ./cmd/jj-stacked
+```
+
+The first image build may fetch pinned inputs. Worker commands run without network access, with the source tree read-only and only the selected host artifact directory writable. The runner respects the host's container image policy. If that policy blocks the first load, get owner approval for a one-time load of the exact built archive instead of changing host policy. Tool, dependency, and vulnerability database pins live in `flake.nix` and `flake.lock`. To refresh the vulnerability snapshot, update the reviewed `vulndb` revision in `flake.nix`, run `nix flake update vulndb`, and review the lockfile change.
 
 ## License
 

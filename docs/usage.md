@@ -24,6 +24,8 @@ jjk submit user-api
 
 `submit [bookmark]` fetches the selected remote, pushes the selected bookmark and all its dependencies, creates missing PRs, and updates existing bases and navigation comments. It does not close PRs. Unchanged bases and comments are left alone.
 
+When an existing stack has been reordered, `submit` first moves each at-risk PR to the repository's default branch. It then pushes the bookmarks, applies the final PR bases, and updates comments. The dry run lists these protective base changes separately. If protection fails, no bookmark is pushed. If a later push or final base update fails, fix the reported error and rerun the same command. A rerun recognizes PRs that are already on the temporary default base and finishes the remaining work.
+
 Omit the bookmark to infer it from your working change:
 
 ```bash

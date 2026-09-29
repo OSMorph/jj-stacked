@@ -220,6 +220,25 @@ jj-stacked will detect the mismatch and update the PR.
 - Updates the base branch if needed
 - Updates the stack navigation comment
 
+### A reordered PR was marked merged automatically
+
+Older versions of jj-stacked pushed reordered bookmarks before updating their PR bases. GitHub could then mark a PR merged because its old base branch contained the PR head. Repository settings could also delete the head branch.
+
+Check the PR timeline and state before retrying. jj-stacked will not reopen a closed PR or create a replacement when a historical PR points to the current bookmark commit.
+
+If the PR is closed without merge, restore its head branch and reopen the same PR on GitHub if GitHub permits it. Then rerun `jjk submit top-bookmark`. If the PR cannot be reopened, use a new bookmark name.
+
+If GitHub marked the PR merged, GitHub cannot reopen it. If the change still needs review, give the local bookmark a new name and submit the stack again:
+
+```bash
+jj bookmark rename affected-bookmark replacement-bookmark
+jjk submit top-bookmark
+```
+
+When GitHub does not return the historical PR's head commit, jj-stacked also stops before creating another PR. Inspect the historical PR. A closed, unmerged PR may be reopened. A merged PR cannot be reopened, so use a new bookmark name if its change still needs review.
+
+Current versions protect a reordered stack before pushing. If submission stops after a protective base update or a push, rerun the same command after fixing the error. The next plan resumes from the PR and branch state GitHub reports.
+
 ### "push rejected"
 
 **Symptom:** Can't push bookmark to remote.

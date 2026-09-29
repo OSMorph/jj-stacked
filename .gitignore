@@ -39,6 +39,7 @@ __debug_bin*
 # Build output
 bin/
 dist/
+.artifacts/
 AGENTS.md
 
 # Project-local compatibility test binaries

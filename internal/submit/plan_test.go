@@ -2,6 +2,8 @@ package submit
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/OSMorph/jj-stacked/internal/github"
@@ -15,6 +17,7 @@ type fakeGitHubClient struct {
 	branches                              map[string]bool
 	userLogin                             string
 	prsByHead                             map[string]*github.PullRequest
+	historicalPRsByHead                   map[string]*github.PullRequest
 }
 
 func (f *fakeGitHubClient) GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error) {
@@ -64,7 +67,7 @@ func TestCreatePRRefreshPlanNeverCreatesOrPushes(t *testing.T) {
 	}
 }
 func (f *fakeGitHubClient) FindPRByHeadAllStates(ctx context.Context, owner, repo, head string) (*github.PullRequest, error) {
-	return nil, nil
+	return f.historicalPRsByHead[head], nil
 }
 func (f *fakeGitHubClient) CreateComment(ctx context.Context, owner, repo string, prNumber int, body string) (*github.Comment, error) {
 	return nil, nil
@@ -105,4 +108,229 @@ func TestSubmissionDoesNotDiscoverOrCloseUnrelatedPRs(t *testing.T) {
 	if client.listOpenCalls != 0 || client.branchCalls != 0 || client.userCalls != 0 {
 		t.Fatalf("unrelated discovery: %+v", client)
 	}
+}
+
+func TestSubmissionProtectsReorderedPRsBeforePush(t *testing.T) {
+	client := &fakeGitHubClient{
+		prsByHead: map[string]*github.PullRequest{
+			"a": {Number: 1, Head: "a", Base: "main", URL: "https://example.test/1"},
+			"b": {Number: 2, Head: "b", Base: "a", URL: "https://example.test/2"},
+		},
+		comments: map[int][]*github.Comment{},
+	}
+	analysis := &AnalysisResult{Stack: []StackBookmark{
+		{Bookmark: jjutils.Bookmark{Name: "b"}, NeedsPush: true},
+		{Bookmark: jjutils.Bookmark{Name: "a"}, NeedsPush: true},
+	}}
+	plan, err := CreateSubmissionPlan(context.Background(), analysis, &PlanningDeps{
+		GitHub: client, Remote: "origin", DefaultBranch: "main",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"protect_base:2:a:main",
+		"push:b", "push:a",
+		"update_base:1:main:b",
+		"sync_comment:b", "sync_comment:a",
+	}
+	if got := actionSignatures(plan.Actions); !equalStrings(got, want) {
+		t.Fatalf("actions = %v, want %v", got, want)
+	}
+	if plan.Summary.PRsToProtect != 1 || plan.Summary.PRsToUpdate != 1 {
+		t.Fatalf("summary = %+v", plan.Summary)
+	}
+
+	dryRun := FormatDryRunOutput(analysis, plan)
+	protectAt := strings.Index(dryRun, "[PROTECT BASE]")
+	pushAt := strings.Index(dryRun, "[PUSH]")
+	finalAt := strings.Index(dryRun, "[UPDATE BASE]")
+	if protectAt < 0 || pushAt < protectAt || finalAt < pushAt {
+		t.Fatalf("dry-run order is unsafe:\n%s", dryRun)
+	}
+	if !strings.Contains(dryRun, "1 PR base(s) to protect before pushing") || !strings.Contains(dryRun, "1 PR base(s) to set after pushing") {
+		t.Fatalf("dry-run summary does not distinguish base phases:\n%s", dryRun)
+	}
+}
+
+func TestSubmissionProtectsMoveAcrossMultipleChildren(t *testing.T) {
+	client := &fakeGitHubClient{
+		prsByHead: map[string]*github.PullRequest{
+			"a": {Number: 1, Head: "a", Base: "main"},
+			"b": {Number: 2, Head: "b", Base: "a"},
+			"c": {Number: 3, Head: "c", Base: "b"},
+			"d": {Number: 4, Head: "d", Base: "c"},
+		},
+		comments: map[int][]*github.Comment{},
+	}
+	analysis := &AnalysisResult{Stack: []StackBookmark{
+		{Bookmark: jjutils.Bookmark{Name: "b"}, NeedsPush: true},
+		{Bookmark: jjutils.Bookmark{Name: "c"}, NeedsPush: true},
+		{Bookmark: jjutils.Bookmark{Name: "a"}, NeedsPush: true},
+		{Bookmark: jjutils.Bookmark{Name: "d"}, NeedsPush: true},
+	}}
+	plan, err := CreateSubmissionPlan(context.Background(), analysis, &PlanningDeps{GitHub: client, Remote: "origin", DefaultBranch: "main"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPrefix := []string{"protect_base:2:a:main", "protect_base:4:c:main", "push:b", "push:c", "push:a", "push:d"}
+	got := actionSignatures(plan.Actions)
+	if len(got) < len(wantPrefix) || !equalStrings(got[:len(wantPrefix)], wantPrefix) {
+		t.Fatalf("action prefix = %v, want %v", got, wantPrefix)
+	}
+	if plan.Summary.PRsToProtect != 2 || plan.Summary.PRsToUpdate != 2 {
+		t.Fatalf("summary = %+v", plan.Summary)
+	}
+}
+
+func TestSubmissionDoesNotProtectUnchangedOrNewPRs(t *testing.T) {
+	client := &fakeGitHubClient{
+		prsByHead: map[string]*github.PullRequest{
+			"a": {Number: 1, Head: "a", Base: "main"},
+			"b": {Number: 2, Head: "b", Base: "a"},
+		},
+		comments: map[int][]*github.Comment{},
+	}
+	analysis := &AnalysisResult{Stack: []StackBookmark{
+		{Bookmark: jjutils.Bookmark{Name: "a"}},
+		{Bookmark: jjutils.Bookmark{Name: "b"}},
+		{Bookmark: jjutils.Bookmark{Name: "c"}, NeedsPush: true},
+	}}
+	plan, err := CreateSubmissionPlan(context.Background(), analysis, &PlanningDeps{GitHub: client, Remote: "origin", DefaultBranch: "main"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Summary.PRsToProtect != 0 {
+		t.Fatalf("new/unchanged stack planned protection: %v", actionSignatures(plan.Actions))
+	}
+	if got := actionSignatures(plan.Actions); len(got) == 0 || got[0] != "push:c" {
+		t.Fatalf("actions = %v", got)
+	}
+}
+
+func TestSubmissionProtectsMismatchedNonStackBaseWhenPushPlanned(t *testing.T) {
+	client := &fakeGitHubClient{
+		prsByHead: map[string]*github.PullRequest{
+			"a": {Number: 1, Head: "a", Base: "main"},
+			"b": {Number: 2, Head: "b", Base: "legacy-base"},
+		},
+		comments: map[int][]*github.Comment{},
+	}
+	analysis := &AnalysisResult{Stack: []StackBookmark{
+		{Bookmark: jjutils.Bookmark{Name: "a"}},
+		{Bookmark: jjutils.Bookmark{Name: "b"}},
+		{Bookmark: jjutils.Bookmark{Name: "c"}, NeedsPush: true},
+	}}
+	plan, err := CreateSubmissionPlan(context.Background(), analysis, &PlanningDeps{GitHub: client, Remote: "origin", DefaultBranch: "main"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := actionSignatures(plan.Actions)
+	wantPrefix := []string{"protect_base:2:legacy-base:main", "push:c", "update_base:2:main:a", "create_pr:c"}
+	if len(got) < len(wantPrefix) || !equalStrings(got[:len(wantPrefix)], wantPrefix) {
+		t.Fatalf("actions = %v, want prefix %v", got, wantPrefix)
+	}
+	if plan.Summary.PRsToProtect != 1 {
+		t.Fatalf("summary = %+v", plan.Summary)
+	}
+}
+
+func TestSubmissionDoesNotReplaceHistoricalPRAtCurrentCommit(t *testing.T) {
+	const current = "1111111111111111111111111111111111111111"
+	analysis := &AnalysisResult{Stack: []StackBookmark{{Bookmark: jjutils.Bookmark{Name: "a", CommitID: current}}}}
+	for _, test := range []struct {
+		name       string
+		historical *github.PullRequest
+		wantError  string
+	}{
+		{
+			name: "marked merged after pushes already succeeded",
+			historical: &github.PullRequest{
+				Number: 1, Head: "a", HeadSHA: current, State: "closed", Merged: true,
+			},
+			wantError: "GitHub cannot reopen a merged PR",
+		},
+		{
+			name: "closed without merge",
+			historical: &github.PullRequest{
+				Number: 1, Head: "a", HeadSHA: current, State: "closed",
+			},
+			wantError: "reopen the PR on GitHub",
+		},
+		{
+			name: "missing head identity",
+			historical: &github.PullRequest{
+				Number: 1, Head: "a", State: "closed",
+			},
+			wantError: "reviewed head commit is unavailable",
+		},
+		{
+			name: "merged with missing head identity",
+			historical: &github.PullRequest{
+				Number: 1, Head: "a", State: "closed", Merged: true,
+			},
+			wantError: "GitHub cannot reopen a merged PR",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := &fakeGitHubClient{
+				prsByHead:           map[string]*github.PullRequest{},
+				historicalPRsByHead: map[string]*github.PullRequest{"a": test.historical},
+				comments:            map[int][]*github.Comment{},
+			}
+			_, err := CreateSubmissionPlan(context.Background(), analysis, &PlanningDeps{GitHub: client, Remote: "origin", DefaultBranch: "main"}, nil)
+			if err == nil || !strings.Contains(err.Error(), test.wantError) || !strings.Contains(err.Error(), "automatically") {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestSubmissionAllowsReusedBookmarkAtDifferentCommit(t *testing.T) {
+	const current = "1111111111111111111111111111111111111111"
+	client := &fakeGitHubClient{
+		prsByHead: map[string]*github.PullRequest{},
+		historicalPRsByHead: map[string]*github.PullRequest{
+			"a": {Number: 1, Head: "a", HeadSHA: "2222222222222222222222222222222222222222", State: "closed", Merged: true},
+		},
+		comments: map[int][]*github.Comment{},
+	}
+	analysis := &AnalysisResult{Stack: []StackBookmark{{Bookmark: jjutils.Bookmark{Name: "a", CommitID: current}, NeedsPush: true}}}
+	plan, err := CreateSubmissionPlan(context.Background(), analysis, &PlanningDeps{GitHub: client, Remote: "origin", DefaultBranch: "main"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := actionSignatures(plan.Actions)
+	if len(got) < 2 || !equalStrings(got[:2], []string{"push:a", "create_pr:a"}) {
+		t.Fatalf("actions = %v", got)
+	}
+}
+
+func actionSignatures(actions []SubmissionAction) []string {
+	result := make([]string, 0, len(actions))
+	for _, action := range actions {
+		switch a := action.(type) {
+		case *PushAction:
+			result = append(result, "push:"+a.Bookmark)
+		case *CreatePRAction:
+			result = append(result, "create_pr:"+a.Bookmark)
+		case *UpdateBaseAction:
+			result = append(result, string(a.Type())+":"+fmt.Sprint(a.PRNumber)+":"+a.OldBase+":"+a.NewBase)
+		case *SyncCommentAction:
+			result = append(result, "sync_comment:"+a.Bookmark)
+		}
+	}
+	return result
+}
+
+func equalStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
