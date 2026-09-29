@@ -241,35 +241,40 @@ func TestSubmissionDoesNotReplaceHistoricalPRAtCurrentCommit(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		historical *github.PullRequest
-		wantError  string
+		wantReason string
+		wantFix    string
 	}{
 		{
 			name: "marked merged after pushes already succeeded",
 			historical: &github.PullRequest{
 				Number: 1, Head: "a", HeadSHA: current, State: "closed", Merged: true,
 			},
-			wantError: "GitHub cannot reopen a merged PR",
+			wantReason: "matches this commit",
+			wantFix:    "GitHub cannot reopen merged PRs; use a new bookmark name",
 		},
 		{
 			name: "closed without merge",
 			historical: &github.PullRequest{
 				Number: 1, Head: "a", HeadSHA: current, State: "closed",
 			},
-			wantError: "reopen the PR on GitHub",
+			wantReason: "matches this commit",
+			wantFix:    "Reopen it on GitHub or use a new bookmark name",
 		},
 		{
 			name: "missing head identity",
 			historical: &github.PullRequest{
 				Number: 1, Head: "a", State: "closed",
 			},
-			wantError: "reviewed head commit is unavailable",
+			wantReason: "has no reviewed head commit",
+			wantFix:    "Reopen it on GitHub or use a new bookmark name",
 		},
 		{
 			name: "merged with missing head identity",
 			historical: &github.PullRequest{
 				Number: 1, Head: "a", State: "closed", Merged: true,
 			},
-			wantError: "GitHub cannot reopen a merged PR",
+			wantReason: "has no reviewed head commit",
+			wantFix:    "GitHub cannot reopen merged PRs; use a new bookmark name",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -279,7 +284,7 @@ func TestSubmissionDoesNotReplaceHistoricalPRAtCurrentCommit(t *testing.T) {
 				comments:            map[int][]*github.Comment{},
 			}
 			_, err := CreateSubmissionPlan(context.Background(), analysis, &PlanningDeps{GitHub: client, Remote: "origin", DefaultBranch: "main"}, nil)
-			if err == nil || !strings.Contains(err.Error(), test.wantError) || !strings.Contains(err.Error(), "automatically") {
+			if err == nil || !strings.Contains(err.Error(), test.wantReason) || !strings.Contains(err.Error(), test.wantFix) || !strings.Contains(err.Error(), "will not reopen or replace it") {
 				t.Fatalf("error = %v", err)
 			}
 		})

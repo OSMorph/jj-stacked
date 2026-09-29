@@ -82,7 +82,7 @@ func ExecuteSubmissionPlan(
 				remainingActions := total - completed - 1
 				result.Summary.Skipped += remainingActions
 				notifyComplete(action, actionResult)
-				return result, criticalActionError(action, actionResult.Error, result.Executed)
+				return result, criticalActionError(action, actionResult.Error)
 			}
 		}
 
@@ -106,19 +106,14 @@ func isCriticalAction(action SubmissionAction) bool {
 	}
 }
 
-func criticalActionError(action SubmissionAction, actionErr error, executed []ActionResult) error {
+func criticalActionError(action SubmissionAction, actionErr error) error {
 	if action.Type() == ActionProtectBase {
-		return fmt.Errorf("protective base update failed before any push; fix the PR base error and rerun submit: %w", actionErr)
+		return fmt.Errorf("protective base update failed before any push; fix the error and rerun the command: %w", actionErr)
 	}
 	if action.Type() == ActionUpdateBase {
-		return fmt.Errorf("PR base update failed; rerun the current command. For an interrupted sync, use sync --continue to finish base and comment updates: %w", actionErr)
+		return fmt.Errorf("PR base update failed; fix the error and rerun the command. For an interrupted sync, use sync --continue: %w", actionErr)
 	}
-	for _, result := range executed {
-		if result.Action.Type() == ActionProtectBase && result.Error == nil {
-			return fmt.Errorf("submission stopped after protective base updates; fix the error and rerun submit to finish final bases and comments: %w", actionErr)
-		}
-	}
-	return fmt.Errorf("critical action failed: %w", actionErr)
+	return fmt.Errorf("submission stopped; fix the error and rerun the command: %w", actionErr)
 }
 
 // updateStackEntries updates stack entries with newly created PR info.

@@ -180,16 +180,15 @@ func rejectHistoricalPRReplacement(
 		if pr.HeadSHA != "" && pr.HeadSHA != sb.Bookmark.CommitID {
 			continue
 		}
+		reason := "matches this commit"
 		if pr.HeadSHA == "" {
-			if pr.Merged {
-				return fmt.Errorf("historical PR #%d for %q is marked merged, but its reviewed head commit is unavailable; GitHub cannot reopen a merged PR and jj-stacked will not replace it automatically; inspect the PR and use a new bookmark name if the change still needs review", pr.Number, sb.Bookmark.Name)
-			}
-			return fmt.Errorf("historical PR #%d for %q is closed, but its reviewed head commit is unavailable; jj-stacked will not replace it automatically; inspect the PR, then reopen it if GitHub permits or use a new bookmark name", pr.Number, sb.Bookmark.Name)
+			reason = "has no reviewed head commit"
 		}
+		recovery := "Reopen it on GitHub or use a new bookmark name"
 		if pr.Merged {
-			return fmt.Errorf("PR #%d for %q was marked merged at the current commit; GitHub cannot reopen a merged PR and jj-stacked will not replace it automatically; use a new bookmark name, then rerun submit", pr.Number, sb.Bookmark.Name)
+			recovery = "GitHub cannot reopen merged PRs; use a new bookmark name"
 		}
-		return fmt.Errorf("PR #%d for %q was closed at the current commit; jj-stacked will not reopen or replace it automatically; reopen the PR on GitHub or use a new bookmark name, then rerun submit", pr.Number, sb.Bookmark.Name)
+		return fmt.Errorf("historical PR #%d for %q %s; jj-stacked will not reopen or replace it. %s, then rerun submit", pr.Number, sb.Bookmark.Name, reason, recovery)
 	}
 	return nil
 }

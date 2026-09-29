@@ -111,12 +111,20 @@ func TestExecuteSubmissionResolvesCreatedPRWithoutMutatingPlan(t *testing.T) {
 }
 
 func TestExecuteSubmissionStopsCriticalFailures(t *testing.T) {
-	for _, fail := range []string{"protect", "push", "create", "update"} {
-		t.Run(fail, func(t *testing.T) {
+	for _, test := range []struct {
+		fail      string
+		wantError string
+	}{
+		{fail: "protect", wantError: "before any push"},
+		{fail: "push", wantError: "rerun the command"},
+		{fail: "create", wantError: "rerun the command"},
+		{fail: "update", wantError: "sync --continue"},
+	} {
+		t.Run(test.fail, func(t *testing.T) {
 			gh := newRecordingGitHub()
 			jj := &recordingJJ{events: &gh.events}
 			failure := errors.New("fixture failure")
-			switch fail {
+			switch test.fail {
 			case "protect":
 				gh.updateErr = failure
 			case "push":
@@ -127,7 +135,7 @@ func TestExecuteSubmissionStopsCriticalFailures(t *testing.T) {
 				gh.updateErr = failure
 			}
 			actions := []SubmissionAction{&PushAction{Bookmark: "a"}, &CreatePRAction{Bookmark: "a"}, &UpdateBaseAction{PRNumber: 1, NewBase: "main"}, &SyncCommentAction{Bookmark: "a", PRNumber: 1, BaseBranch: "main"}}
-			if fail == "protect" {
+			if test.fail == "protect" {
 				actions = append([]SubmissionAction{&UpdateBaseAction{PRNumber: 2, OldBase: "a", NewBase: "main", Protect: true}}, actions...)
 			}
 			plan := &SubmissionPlan{Actions: actions}
@@ -135,7 +143,7 @@ func TestExecuteSubmissionStopsCriticalFailures(t *testing.T) {
 			if result.Summary.Failed != 1 {
 				t.Fatalf("wrong failure count: %+v", result)
 			}
-			if !errors.Is(err, failure) || result.Summary.Skipped == 0 {
+			if !errors.Is(err, failure) || result.Summary.Skipped == 0 || !strings.Contains(err.Error(), test.wantError) {
 				t.Fatalf("critical failure continued: %+v %v", result, err)
 			}
 			for _, event := range gh.events {
