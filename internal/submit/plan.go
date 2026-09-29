@@ -35,7 +35,47 @@ func CreateSubmissionPlan(
 		}
 	}
 
-	// Phase 1: Collect push actions for all bookmarks that need push
+	// Discover PRs before scheduling writes so reordered stacks can be protected
+	// before any branch moves on the remote.
+	progress("Checking GitHub for existing PRs...")
+	prInfo, err := discoverPRs(ctx, analysis, deps, plan, callbacks)
+	if err != nil {
+		return nil, err
+	}
+
+	hasPush := false
+	for _, sb := range analysis.Stack {
+		if sb.NeedsPush {
+			hasPush = true
+			break
+		}
+	}
+	if err := rejectHistoricalPRReplacement(ctx, analysis, deps, prInfo); err != nil {
+		return nil, err
+	}
+
+	// A PR with a stale base can be marked indirectly merged while a reordered
+	// stack is pushed. Park it on the default branch before any push.
+	progress("Planning protection for reordered pull requests...")
+	protected := make(map[string]bool)
+	for i, sb := range analysis.Stack {
+		expectedBase := expectedBase(analysis, i, deps.DefaultBranch)
+		pr := prInfo[sb.Bookmark.Name]
+		needsProtection := hasPush && pr != nil && pr.Base != expectedBase && pr.Base != deps.DefaultBranch
+		if !needsProtection {
+			continue
+		}
+		plan.Actions = append(plan.Actions, &UpdateBaseAction{
+			Bookmark: sb.Bookmark.Name,
+			PRNumber: pr.Number,
+			OldBase:  pr.Base,
+			NewBase:  deps.DefaultBranch,
+			Protect:  true,
+		})
+		protected[sb.Bookmark.Name] = true
+		plan.Summary.PRsToProtect++
+	}
+
 	progress("Checking which bookmarks need push...")
 	for _, sb := range analysis.Stack {
 		if sb.NeedsPush {
@@ -47,25 +87,10 @@ func CreateSubmissionPlan(
 		}
 	}
 
-	// Phase 2: Query GitHub for existing PRs on each bookmark
-	progress("Checking GitHub for existing PRs...")
-	prInfo, err := discoverPRs(ctx, analysis, deps, plan, callbacks)
-	if err != nil {
-		return nil, err
-	}
-
-	// Phase 3: Create PR create/update actions
+	// Create missing PRs and apply final bases after every push succeeds.
 	progress("Planning PR actions...")
 	for i, sb := range analysis.Stack {
-		// Determine expected base branch
-		var expectedBase string
-		if i == 0 {
-			// First bookmark in stack - base is default branch
-			expectedBase = deps.DefaultBranch
-		} else {
-			// Stacked bookmark - base is previous bookmark
-			expectedBase = analysis.Stack[i-1].Bookmark.Name
-		}
+		expectedBase := expectedBase(analysis, i, deps.DefaultBranch)
 
 		existingPR := prInfo[sb.Bookmark.Name]
 
@@ -79,19 +104,26 @@ func CreateSubmissionPlan(
 				Draft:      false, // Will be set by command flags
 			})
 			plan.Summary.PRsToCreate++
-		} else if existingPR.Base != expectedBase {
+		} else {
+			oldBase := existingPR.Base
+			if protected[sb.Bookmark.Name] {
+				oldBase = deps.DefaultBranch
+			}
+			if oldBase == expectedBase {
+				continue
+			}
 			// PR exists and base needs update
 			plan.Actions = append(plan.Actions, &UpdateBaseAction{
 				Bookmark: sb.Bookmark.Name,
 				PRNumber: existingPR.Number,
 				NewBase:  expectedBase,
-				OldBase:  existingPR.Base,
+				OldBase:  oldBase,
 			})
 			plan.Summary.PRsToUpdate++
 		}
 	}
 
-	// Phase 5: Create sync comment actions for all PRs
+	// Create sync comment actions for all PRs.
 	// We need to wait until we know which PRs will exist
 	progress("Planning stack comment sync...")
 
@@ -126,6 +158,46 @@ func CreateSubmissionPlan(
 	}
 
 	return plan, nil
+}
+
+func rejectHistoricalPRReplacement(
+	ctx context.Context,
+	analysis *AnalysisResult,
+	deps *PlanningDeps,
+	prInfo map[string]*github.PullRequest,
+) error {
+	for _, sb := range analysis.Stack {
+		if prInfo[sb.Bookmark.Name] != nil {
+			continue
+		}
+		pr, err := deps.GitHub.FindPRByHeadAllStates(ctx, deps.Owner, deps.Repo, sb.Bookmark.Name)
+		if err != nil {
+			return fmt.Errorf("failed to check PR history for %q: %w", sb.Bookmark.Name, err)
+		}
+		if pr == nil || pr.State == "open" {
+			continue
+		}
+		if pr.HeadSHA != "" && pr.HeadSHA != sb.Bookmark.CommitID {
+			continue
+		}
+		reason := "matches this commit"
+		if pr.HeadSHA == "" {
+			reason = "has no reviewed head commit"
+		}
+		recovery := "Reopen it on GitHub or use a new bookmark name"
+		if pr.Merged {
+			recovery = "GitHub cannot reopen merged PRs; use a new bookmark name"
+		}
+		return fmt.Errorf("historical PR #%d for %q %s; jj-stacked will not reopen or replace it. %s, then rerun submit", pr.Number, sb.Bookmark.Name, reason, recovery)
+	}
+	return nil
+}
+
+func expectedBase(analysis *AnalysisResult, index int, defaultBranch string) string {
+	if index == 0 {
+		return defaultBranch
+	}
+	return analysis.Stack[index-1].Bookmark.Name
 }
 
 // CreatePRRefreshPlan plans only idempotent updates to existing PR bases and

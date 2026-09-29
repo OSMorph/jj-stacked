@@ -76,6 +76,7 @@ type ActionType string
 const (
 	ActionPush        ActionType = "push"
 	ActionCreatePR    ActionType = "create_pr"
+	ActionProtectBase ActionType = "protect_base"
 	ActionUpdateBase  ActionType = "update_base"
 	ActionSyncComment ActionType = "sync_comment"
 )
@@ -107,6 +108,7 @@ type ActionDeps struct {
 type PlanSummary struct {
 	BookmarksToPush int
 	PRsToCreate     int
+	PRsToProtect    int
 	PRsToUpdate     int
 	CommentsToSync  int
 }

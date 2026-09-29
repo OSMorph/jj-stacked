@@ -565,7 +565,7 @@ func TestIntegration_SubmitDryRun(t *testing.T) {
 			pushCount++
 		case submit.ActionCreatePR:
 			createCount++
-		case submit.ActionUpdateBase, submit.ActionSyncComment:
+		case submit.ActionProtectBase, submit.ActionUpdateBase, submit.ActionSyncComment:
 			// Not counting these action types in this test
 		}
 	}

@@ -8,8 +8,8 @@ import (
 )
 
 // AIDEV-NOTE: The execution phase performs all planned actions.
-// It executes in order: push → create PR → update base → sync comments.
-// Push and PR creation failures abort execution; metadata failures are collected.
+// It executes in order: protect bases → push → create PR → set final bases → sync comments.
+// Protection, push, PR creation, and final-base failures abort dependent work.
 
 // ExecuteSubmissionPlan executes all actions in the plan.
 func ExecuteSubmissionPlan(
@@ -82,7 +82,7 @@ func ExecuteSubmissionPlan(
 				remainingActions := total - completed - 1
 				result.Summary.Skipped += remainingActions
 				notifyComplete(action, actionResult)
-				return result, fmt.Errorf("critical action failed: %w", actionResult.Error)
+				return result, criticalActionError(action, actionResult.Error)
 			}
 		}
 
@@ -97,18 +97,23 @@ func ExecuteSubmissionPlan(
 // isCriticalAction returns true if failure of this action should abort execution.
 func isCriticalAction(action SubmissionAction) bool {
 	switch action.Type() {
-	case ActionPush:
-		// Push failures are critical - can't create PR without push
+	case ActionProtectBase, ActionPush, ActionCreatePR, ActionUpdateBase:
 		return true
-	case ActionCreatePR:
-		// PR creation failures are critical for that PR's workflow
-		return true
-	case ActionUpdateBase, ActionSyncComment:
-		// These are non-critical - continue on failure
+	case ActionSyncComment:
 		return false
 	default:
 		return false
 	}
+}
+
+func criticalActionError(action SubmissionAction, actionErr error) error {
+	if action.Type() == ActionProtectBase {
+		return fmt.Errorf("protective base update failed before any push; fix the error and rerun the command: %w", actionErr)
+	}
+	if action.Type() == ActionUpdateBase {
+		return fmt.Errorf("PR base update failed; fix the error and rerun the command. For an interrupted sync, use sync --continue: %w", actionErr)
+	}
+	return fmt.Errorf("submission stopped; fix the error and rerun the command: %w", actionErr)
 }
 
 // updateStackEntries updates stack entries with newly created PR info.

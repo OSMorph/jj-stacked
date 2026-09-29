@@ -88,15 +88,22 @@ type UpdateBaseAction struct {
 	PRNumber int
 	NewBase  string
 	OldBase  string
+	Protect  bool
 }
 
 // Type implements SubmissionAction.
 func (a *UpdateBaseAction) Type() ActionType {
+	if a.Protect {
+		return ActionProtectBase
+	}
 	return ActionUpdateBase
 }
 
 // Description implements SubmissionAction.
 func (a *UpdateBaseAction) Description() string {
+	if a.Protect {
+		return fmt.Sprintf("Protect PR #%d before pushes: %s → %s", a.PRNumber, a.OldBase, a.NewBase)
+	}
 	return fmt.Sprintf("Update PR #%d base: %s → %s", a.PRNumber, a.OldBase, a.NewBase)
 }
 
@@ -110,6 +117,10 @@ func (a *UpdateBaseAction) Execute(ctx context.Context, deps *ActionDeps) Action
 
 	_, err := deps.GitHub.UpdatePullRequest(ctx, deps.Owner, deps.Repo, a.PRNumber, req)
 	if err != nil {
+		if a.Protect {
+			result.Error = fmt.Errorf("failed to protect PR #%d before pushes: %w", a.PRNumber, err)
+			return result
+		}
 		result.Error = fmt.Errorf("failed to update base for PR #%d: %w", a.PRNumber, err)
 		return result
 	}

@@ -164,10 +164,11 @@ jj-stacked submit my-feature
 ```
 
 This will:
-1. Push all bookmarks in the stack to GitHub
-2. Create PRs for bookmarks without existing PRs
-3. Update base branches if stack structure changed
-4. Add stack navigation comments to all PRs
+1. Protect existing PRs affected by the new stack order
+2. Push all bookmarks in the stack to GitHub
+3. Create PRs for bookmarks without existing PRs
+4. Apply final base branches
+5. Add stack navigation comments to all PRs
 
 ### Preview Changes (Dry Run)
 

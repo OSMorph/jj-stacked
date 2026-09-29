@@ -36,11 +36,11 @@ lint:
 
 # Format code
 fmt:
-	gofmt -w $$(find . -name '*.go' -not -path './vendor/*')
+	gofmt -w $$(find . -name '*.go' -not -path './vendor/*' -not -path './.artifacts/*' -not -path './.workspace/*')
 
 # Verify formatting without rewriting the worktree.
 fmt-check:
-	@test -z "$$(gofmt -l $$(find . -name '*.go' -not -path './vendor/*'))"
+	@test -z "$$(gofmt -l $$(find . -name '*.go' -not -path './vendor/*' -not -path './.artifacts/*' -not -path './.workspace/*'))"
 
 # Install both command names to INSTALL_DIR
 install: build
